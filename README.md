@@ -1,18 +1,6 @@
 # Certify
 
-**A Python automation tool for bulk certificate generation and email distribution**
-
-Certify streamlines the process of creating and distributing personalized certificates. It reads participant data from a CSV file, generates certificates in both PDF and JPG formats using a template image, and automatically emails them to recipients. The scripts are designed to be robust, efficient, and resumable, making them suitable for handling large batches of certificates.
-
-## Features
-
-- **Bulk Certificate Generation**: Creates personalized certificates from CSV data
-- **Multiple Output Formats**: Generates both PDF and JPG versions of each certificate
-- **Template-Based Design**: Uses a customizable certificate template image
-- **Automated Email Distribution**: Sends certificates to recipients via email
-- **Progress Tracking**: Maintains detailed logs of successful and failed operations
-- **Resumable Operations**: Can be safely restarted without duplicating work
-- **Flexible Data Input**: Automatically detects name and email columns regardless of CSV structure
+**A Python automation tool for bulk certificate generation and email distribution for SCCSE AOT**
 
 ## Prerequisites
 
@@ -97,7 +85,7 @@ You can customize the certificate generation by modifying variables in `generate
 
 - `FIXED_FONT_SIZE`: Size of the text (default: 70)
 - `TEXT_COLOR`: Color of the name text (default: "black")
-- `NAME_BOX`: Coordinates for text placement (x1, y1, x2, y2)
+- `NAME_BOX`: Coordinates for text placement (x1, y1, x2, y2): (x1,y1) -> top left corner, (x2,y2) -> bottom right corner
 
 ## Usage
 
