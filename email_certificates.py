@@ -113,7 +113,7 @@ def main():
                     if send_email(server, sender_email, email, name, pdf_file, jpg_file):
                         sent_writer.writerow([name, email])
                         sent_log_file.flush()
-                    time.sleep(random.randint(2, 5))
+                    time.sleep(random.random())
                 except Exception as e:
                     print(f"--> FAILED for '{name}' ({email}). Reason: {e}")
 
