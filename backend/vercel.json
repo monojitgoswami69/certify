@@ -1,0 +1,25 @@
+{
+  "builds": [
+    {
+      "src": "main.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "50mb",
+        "includeFiles": [
+          "../fonts/**"
+        ]
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "main.py"
+    }
+  ],
+  "functions": {
+    "main.py": {
+      "maxDuration": 60
+    }
+  }
+}

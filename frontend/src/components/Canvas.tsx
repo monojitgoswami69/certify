@@ -1,8 +1,11 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
+import { RotateCcw } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
-import type { Selection } from '../types';
+import type { TextBox } from '../types';
 
 const HANDLE_SIZE = 8;
+const LABEL_HEIGHT = 20;
+const LABEL_PADDING = 6;
 
 type DragMode = 'none' | 'draw' | 'move' | 'resize';
 type HandleKey = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
@@ -13,20 +16,24 @@ export function Canvas() {
 
     const {
         templateImage,
-        selection,
+        boxes,
+        activeBoxId,
         displayScale,
         previewEnabled,
-        previewText,
-        fontSize,
-        fontColor,
-        setSelection,
+        csvData,
+        addBox,
+        updateBox,
+        deleteBox,
+        setActiveBox,
         setDisplayScale,
+        reset,
     } = useAppStore();
 
     const [dragMode, setDragMode] = useState<DragMode>('none');
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
     const [activeHandle, setActiveHandle] = useState<HandleKey | null>(null);
-    const [originalSelection, setOriginalSelection] = useState<Selection | null>(null);
+    const [originalBox, setOriginalBox] = useState<TextBox | null>(null);
+    const [tempBox, setTempBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
     // Convert screen coordinates to image coordinates
     const screenToImage = useCallback((screenX: number, screenY: number) => {
@@ -61,63 +68,84 @@ export function Canvas() {
         canvas.height = Math.floor(templateImage.height * scale);
     }, [templateImage, setDisplayScale]);
 
-    // Render canvas
-    const render = useCallback(() => {
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext('2d');
-        if (!canvas || !ctx || !templateImage) return;
+    // Draw a single box with optional preview and label
+    const drawBox = useCallback((
+        ctx: CanvasRenderingContext2D,
+        box: TextBox | { x: number; y: number; w: number; h: number; field?: string },
+        isActive: boolean,
+        previewText?: string
+    ) => {
+        const displayBox = {
+            x: box.x * displayScale,
+            y: box.y * displayScale,
+            w: box.w * displayScale,
+            h: box.h * displayScale,
+        };
 
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(templateImage, 0, 0, canvas.width, canvas.height);
+        // Fill
+        ctx.fillStyle = isActive ? 'rgba(79, 70, 229, 0.2)' : 'rgba(59, 130, 246, 0.12)';
+        ctx.fillRect(displayBox.x, displayBox.y, displayBox.w, displayBox.h);
 
-        if (selection && selection.w > 0 && selection.h > 0) {
-            const displaySel = {
-                x: selection.x * displayScale,
-                y: selection.y * displayScale,
-                w: selection.w * displayScale,
-                h: selection.h * displayScale,
-            };
+        // Border
+        ctx.strokeStyle = isActive ? '#4f46e5' : '#3b82f6';
+        ctx.lineWidth = isActive ? 2 : 1.5;
+        ctx.setLineDash(isActive ? [] : [4, 2]);
+        ctx.strokeRect(displayBox.x, displayBox.y, displayBox.w, displayBox.h);
+        ctx.setLineDash([]);
 
-            // Fill
-            ctx.fillStyle = 'rgba(79, 70, 229, 0.15)';
-            ctx.fillRect(displaySel.x, displaySel.y, displaySel.w, displaySel.h);
+        // Field label on top
+        const field = 'field' in box ? box.field : undefined;
+        if (field) {
+            const labelText = field;
+            ctx.font = '11px Inter, system-ui, sans-serif';
+            const textMetrics = ctx.measureText(labelText);
+            const labelWidth = textMetrics.width + LABEL_PADDING * 2;
 
-            // Border
-            ctx.strokeStyle = '#4f46e5';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(displaySel.x, displaySel.y, displaySel.w, displaySel.h);
+            // Label background
+            ctx.fillStyle = isActive ? '#4f46e5' : '#3b82f6';
+            ctx.beginPath();
+            ctx.roundRect(displayBox.x, displayBox.y - LABEL_HEIGHT - 2, labelWidth, LABEL_HEIGHT, 4);
+            ctx.fill();
 
-            // Preview text
-            if (previewEnabled && previewText) {
-                let currentFontSize = fontSize;
-                const minFontSize = 10;
+            // Label text
+            ctx.fillStyle = '#ffffff';
+            ctx.textBaseline = 'middle';
+            ctx.textAlign = 'left';
+            ctx.fillText(labelText, displayBox.x + LABEL_PADDING, displayBox.y - LABEL_HEIGHT / 2 - 2);
+        }
 
-                // Auto-shrink font to fit
-                while (currentFontSize >= minFontSize) {
-                    const displayFontSize = currentFontSize * displayScale;
-                    ctx.font = `${displayFontSize}px "JetBrains Mono", monospace`;
-                    const metrics = ctx.measureText(previewText);
-                    const textHeight = displayFontSize * 1.2;
+        // Preview text inside box
+        if (previewEnabled && previewText && 'fontSize' in box) {
+            let currentFontSize = box.fontSize;
+            const minFontSize = 10;
 
-                    if (metrics.width <= displaySel.w - 10 && textHeight <= displaySel.h - 10) {
-                        break;
-                    }
-                    currentFontSize -= 2;
-                }
-
+            // Auto-shrink font to fit
+            while (currentFontSize >= minFontSize) {
                 const displayFontSize = currentFontSize * displayScale;
                 ctx.font = `${displayFontSize}px "JetBrains Mono", monospace`;
-                ctx.fillStyle = fontColor;
-                ctx.textBaseline = 'alphabetic';
-                ctx.textAlign = 'center';
+                const metrics = ctx.measureText(previewText);
+                const textHeight = displayFontSize * 1.2;
 
-                const centerX = displaySel.x + displaySel.w / 2;
-                const bottomY = displaySel.y + displaySel.h - 8;
-                ctx.fillText(previewText, centerX, bottomY);
+                if (metrics.width <= displayBox.w - 10 && textHeight <= displayBox.h - 10) {
+                    break;
+                }
+                currentFontSize -= 2;
             }
 
-            // Handles
-            const handles = getHandlePositions(displaySel);
+            const displayFontSize = currentFontSize * displayScale;
+            ctx.font = `${displayFontSize}px "JetBrains Mono", monospace`;
+            ctx.fillStyle = box.fontColor;
+            ctx.textBaseline = 'alphabetic';
+            ctx.textAlign = 'center';
+
+            const centerX = displayBox.x + displayBox.w / 2;
+            const bottomY = displayBox.y + displayBox.h - 8;
+            ctx.fillText(previewText, centerX, bottomY);
+        }
+
+        // Handles for active box
+        if (isActive) {
+            const handles = getHandlePositions(displayBox);
             ctx.fillStyle = '#ffffff';
             ctx.strokeStyle = '#4f46e5';
             ctx.lineWidth = 2;
@@ -129,7 +157,37 @@ export function Canvas() {
                 ctx.stroke();
             });
         }
-    }, [templateImage, selection, displayScale, previewEnabled, previewText, fontSize, fontColor]);
+    }, [displayScale, previewEnabled]);
+
+    // Render canvas
+    const render = useCallback(() => {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d');
+        if (!canvas || !ctx || !templateImage) return;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(templateImage, 0, 0, canvas.width, canvas.height);
+
+        // Draw all non-active boxes first
+        boxes.forEach(box => {
+            if (box.id !== activeBoxId) {
+                const previewText = csvData.length > 0 && box.field ? csvData[0][box.field] : undefined;
+                drawBox(ctx, box, false, previewText);
+            }
+        });
+
+        // Draw active box on top
+        const activeBox = boxes.find(b => b.id === activeBoxId);
+        if (activeBox) {
+            const previewText = csvData.length > 0 && activeBox.field ? csvData[0][activeBox.field] : undefined;
+            drawBox(ctx, activeBox, true, previewText);
+        }
+
+        // Draw temporary box while drawing
+        if (tempBox && dragMode === 'draw') {
+            drawBox(ctx, tempBox, true);
+        }
+    }, [templateImage, boxes, activeBoxId, csvData, drawBox, tempBox, dragMode]);
 
     // Handle positions
     const getHandlePositions = (sel: { x: number; y: number; w: number; h: number }) => {
@@ -147,10 +205,12 @@ export function Canvas() {
         };
     };
 
-    // Check if point is near a handle
+    // Check if point is near a handle of the active box
     const getHandleAtPoint = useCallback((imgX: number, imgY: number): HandleKey | null => {
-        if (!selection) return null;
-        const handles = getHandlePositions(selection);
+        const activeBox = boxes.find(b => b.id === activeBoxId);
+        if (!activeBox) return null;
+
+        const handles = getHandlePositions(activeBox);
         const threshold = HANDLE_SIZE / displayScale;
 
         for (const [key, pos] of Object.entries(handles)) {
@@ -159,18 +219,24 @@ export function Canvas() {
             }
         }
         return null;
-    }, [selection, displayScale]);
+    }, [boxes, activeBoxId, displayScale]);
 
-    // Check if point is inside selection
-    const isInsideSelection = useCallback((imgX: number, imgY: number): boolean => {
-        if (!selection) return false;
-        return (
-            imgX >= selection.x &&
-            imgX <= selection.x + selection.w &&
-            imgY >= selection.y &&
-            imgY <= selection.y + selection.h
-        );
-    }, [selection]);
+    // Find box at point
+    const getBoxAtPoint = useCallback((imgX: number, imgY: number): TextBox | null => {
+        // Check in reverse order (top-most first)
+        for (let i = boxes.length - 1; i >= 0; i--) {
+            const box = boxes[i];
+            if (
+                imgX >= box.x &&
+                imgX <= box.x + box.w &&
+                imgY >= box.y &&
+                imgY <= box.y + box.h
+            ) {
+                return box;
+            }
+        }
+        return null;
+    }, [boxes]);
 
     // Mouse handlers
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -178,27 +244,40 @@ export function Canvas() {
 
         const { x: imgX, y: imgY } = screenToImage(e.clientX, e.clientY);
 
+        // Check for handle resize on active box
         const handle = getHandleAtPoint(imgX, imgY);
         if (handle) {
-            setDragMode('resize');
-            setActiveHandle(handle);
-            setOriginalSelection(selection ? { ...selection } : null);
-            setDragStart({ x: imgX, y: imgY });
+            const activeBox = boxes.find(b => b.id === activeBoxId);
+            if (activeBox) {
+                setDragMode('resize');
+                setActiveHandle(handle);
+                setOriginalBox({ ...activeBox });
+                setDragStart({ x: imgX, y: imgY });
+                return;
+            }
+        }
+
+        // Check if clicking on a box
+        const clickedBox = getBoxAtPoint(imgX, imgY);
+        if (clickedBox) {
+            // If clicking on already active box, prepare to move
+            if (clickedBox.id === activeBoxId) {
+                setDragMode('move');
+                setDragStart({ x: imgX, y: imgY });
+                setOriginalBox({ ...clickedBox });
+            } else {
+                // Select this box
+                setActiveBox(clickedBox.id);
+            }
             return;
         }
 
-        if (isInsideSelection(imgX, imgY)) {
-            setDragMode('move');
-            setDragStart({ x: imgX, y: imgY });
-            setOriginalSelection(selection ? { ...selection } : null);
-            return;
-        }
-
-        // Start new selection
+        // Start new box
+        setActiveBox(null);
         setDragMode('draw');
         setDragStart({ x: imgX, y: imgY });
-        setSelection({ x: imgX, y: imgY, w: 0, h: 0 });
-    }, [templateImage, screenToImage, getHandleAtPoint, isInsideSelection, selection, setSelection]);
+        setTempBox({ x: imgX, y: imgY, w: 0, h: 0 });
+    }, [templateImage, screenToImage, getHandleAtPoint, getBoxAtPoint, boxes, activeBoxId, setActiveBox]);
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
         if (dragMode === 'none' || !templateImage) return;
@@ -212,58 +291,82 @@ export function Canvas() {
             const y = Math.min(dragStart.y, clampedY);
             const w = Math.abs(clampedX - dragStart.x);
             const h = Math.abs(clampedY - dragStart.y);
-            setSelection({ x, y, w, h });
-        } else if (dragMode === 'move' && originalSelection) {
+            setTempBox({ x, y, w, h });
+        } else if (dragMode === 'move' && originalBox) {
             const dx = clampedX - dragStart.x;
             const dy = clampedY - dragStart.y;
-            let newX = originalSelection.x + dx;
-            let newY = originalSelection.y + dy;
-            newX = Math.max(0, Math.min(newX, templateImage.width - originalSelection.w));
-            newY = Math.max(0, Math.min(newY, templateImage.height - originalSelection.h));
-            setSelection({ ...originalSelection, x: newX, y: newY });
-        } else if (dragMode === 'resize' && activeHandle && originalSelection) {
+            let newX = originalBox.x + dx;
+            let newY = originalBox.y + dy;
+            newX = Math.max(0, Math.min(newX, templateImage.width - originalBox.w));
+            newY = Math.max(0, Math.min(newY, templateImage.height - originalBox.h));
+            updateBox(originalBox.id, { x: newX, y: newY });
+        } else if (dragMode === 'resize' && activeHandle && originalBox) {
             const dx = clampedX - dragStart.x;
             const dy = clampedY - dragStart.y;
-            const newSel = { ...originalSelection };
+            const newBox = { ...originalBox };
 
             if (activeHandle.includes('w')) {
-                newSel.x = originalSelection.x + dx;
-                newSel.w = originalSelection.w - dx;
+                newBox.x = originalBox.x + dx;
+                newBox.w = originalBox.w - dx;
             }
             if (activeHandle.includes('e')) {
-                newSel.w = originalSelection.w + dx;
+                newBox.w = originalBox.w + dx;
             }
             if (activeHandle.includes('n')) {
-                newSel.y = originalSelection.y + dy;
-                newSel.h = originalSelection.h - dy;
+                newBox.y = originalBox.y + dy;
+                newBox.h = originalBox.h - dy;
             }
             if (activeHandle.includes('s')) {
-                newSel.h = originalSelection.h + dy;
+                newBox.h = originalBox.h + dy;
             }
 
             // Enforce minimum size
-            if (newSel.w < 20) {
+            if (newBox.w < 20) {
                 if (activeHandle.includes('w')) {
-                    newSel.x = originalSelection.x + originalSelection.w - 20;
+                    newBox.x = originalBox.x + originalBox.w - 20;
                 }
-                newSel.w = 20;
+                newBox.w = 20;
             }
-            if (newSel.h < 20) {
+            if (newBox.h < 20) {
                 if (activeHandle.includes('n')) {
-                    newSel.y = originalSelection.y + originalSelection.h - 20;
+                    newBox.y = originalBox.y + originalBox.h - 20;
                 }
-                newSel.h = 20;
+                newBox.h = 20;
             }
 
-            setSelection(newSel);
+            updateBox(originalBox.id, { x: newBox.x, y: newBox.y, w: newBox.w, h: newBox.h });
         }
-    }, [dragMode, dragStart, originalSelection, activeHandle, screenToImage, setSelection, templateImage]);
+    }, [dragMode, dragStart, originalBox, activeHandle, screenToImage, updateBox, templateImage]);
 
     const handleMouseUp = useCallback(() => {
+        // If we were drawing a new box and it has some size, add it
+        if (dragMode === 'draw' && tempBox && tempBox.w > 20 && tempBox.h > 20) {
+            addBox(tempBox);
+        }
+
         setDragMode('none');
         setActiveHandle(null);
-        setOriginalSelection(null);
-    }, []);
+        setOriginalBox(null);
+        setTempBox(null);
+    }, [dragMode, tempBox, addBox]);
+
+    // Keyboard handler for delete
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.key === 'Delete' || e.key === 'Backspace') && activeBoxId) {
+                // Don't delete if we're in an input field
+                const target = e.target as HTMLElement;
+                if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
+                    return;
+                }
+                e.preventDefault();
+                deleteBox(activeBoxId);
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [activeBoxId, deleteBox]);
 
     // Effects
     useEffect(() => {
@@ -296,7 +399,7 @@ export function Canvas() {
     return (
         <div
             ref={containerRef}
-            className="flex-1 flex items-center justify-center bg-slate-100 p-6 overflow-hidden"
+            className="flex-1 flex flex-col items-center justify-center bg-slate-100 p-6 overflow-hidden"
         >
             <canvas
                 ref={canvasRef}
@@ -305,7 +408,17 @@ export function Canvas() {
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
+                tabIndex={0}
             />
+
+            {/* Reset button - below canvas */}
+            <button
+                onClick={reset}
+                className="mt-4 flex items-center gap-2 px-3 py-1.5 text-slate-500 hover:text-slate-700 transition-colors"
+            >
+                <RotateCcw className="w-4 h-4" />
+                <span className="text-sm">Reset All</span>
+            </button>
         </div>
     );
 }

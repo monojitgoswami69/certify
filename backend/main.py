@@ -3,20 +3,35 @@ Certify Backend - FastAPI Certificate Generator
 """
 
 import io
+import os
 import csv
 import zipfile
 import re
+import smtplib
+import ssl
+import base64
+import json
 from pathlib import Path
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+from typing import Optional
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from PIL import Image, ImageDraw, ImageFont
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = FastAPI(
     title="Certify API",
     description="Generate personalized certificates from a template and CSV data",
-    version="1.0.0"
+    version="2.0.0"
 )
 
 # CORS - allow frontend to connect
@@ -95,7 +110,7 @@ def load_font(font_filename: str, font_size: int) -> ImageFont.FreeTypeFont:
 
 
 def get_font_for_text(
-    name: str, 
+    text: str, 
     box_w: int, 
     box_h: int, 
     max_font_size: int,
@@ -115,7 +130,7 @@ def get_font_for_text(
         # Create a temporary draw context to measure text
         tmp_img = Image.new('RGB', (1, 1))
         tmp_draw = ImageDraw.Draw(tmp_img)
-        bbox = tmp_draw.textbbox((0, 0), name, font=font)
+        bbox = tmp_draw.textbbox((0, 0), text, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
         
@@ -129,30 +144,28 @@ def get_font_for_text(
     return load_font(font_filename, min_font_size), min_font_size
 
 
-def draw_certificate(
-    template: Image.Image,
-    name: str,
-    box: tuple[int, int, int, int],  # x, y, w, h
+def draw_text_box(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    x: int, y: int, w: int, h: int,
     max_font_size: int,
     color: str,
     font_filename: str
-) -> Image.Image:
+) -> None:
     """
-    Draw a name in the box on the template.
+    Draw text in a box on the image.
     - Horizontally centered
     - Vertically aligned to bottom of box
-    - Font size auto-reduced if text doesn't fit (checks width AND height)
+    - Font size auto-reduced if text doesn't fit
     """
-    img = template.copy()
-    draw = ImageDraw.Draw(img)
-    
-    x, y, w, h = box
+    if not text.strip():
+        return
     
     # Get font that fits the text within the box
-    font, _ = get_font_for_text(name, w, h, max_font_size, font_filename)
+    font, _ = get_font_for_text(text, w, h, max_font_size, font_filename)
     
     # Get text dimensions
-    bbox = draw.textbbox((0, 0), name, font=font)
+    bbox = draw.textbbox((0, 0), text, font=font)
     text_w = bbox[2] - bbox[0]
     text_h = bbox[3] - bbox[1]
     
@@ -166,7 +179,32 @@ def draw_certificate(
     text_x -= bbox[0]
     text_y -= bbox[1]
     
-    draw.text((text_x, text_y), name, font=font, fill=color)
+    draw.text((text_x, text_y), text, font=font, fill=color)
+
+
+def draw_certificate_multi(
+    template: Image.Image,
+    text_boxes: list[dict],
+) -> Image.Image:
+    """
+    Draw multiple text boxes on the template.
+    Each text_box should have: x, y, w, h, text, fontSize, fontColor, fontFile
+    """
+    img = template.copy()
+    draw = ImageDraw.Draw(img)
+    
+    for box in text_boxes:
+        draw_text_box(
+            draw,
+            text=box.get("text", ""),
+            x=int(box.get("x", 0)),
+            y=int(box.get("y", 0)),
+            w=int(box.get("w", 100)),
+            h=int(box.get("h", 50)),
+            max_font_size=int(box.get("fontSize", 60)),
+            color=box.get("fontColor", "#000000"),
+            font_filename=box.get("fontFile", "")
+        )
     
     return img
 
@@ -184,124 +222,219 @@ async def list_fonts():
     return JSONResponse(content={"fonts": fonts})
 
 
-@app.post("/generate")
-async def generate_certificates(
+@app.post("/generate-single")
+async def generate_single_certificate(
     template: UploadFile = File(..., description="Certificate template image"),
-    csv_file: UploadFile = File(..., description="CSV file with names"),
-    name_column: str = Form(..., description="Column name containing names"),
-    box_x: int = Form(..., description="Selection box X coordinate"),
-    box_y: int = Form(..., description="Selection box Y coordinate"),
-    box_w: int = Form(..., description="Selection box width"),
-    box_h: int = Form(..., description="Selection box height"),
-    font_size: int = Form(60, description="Maximum font size in pixels"),
-    font_color: str = Form("#000000", description="Font color as hex code"),
-    font_file: str = Form("JetBrainsMonoNerdFontPropo-Medium.ttf", description="Font filename"),
+    text_boxes: str = Form(..., description="JSON array of text box configurations"),
+    include_pdf: bool = Form(True, description="Include PDF version"),
+    include_jpg: bool = Form(True, description="Include JPG version"),
+    filename: str = Form("certificate", description="Base filename for output"),
 ):
     """
-    Generate certificates for all names in the CSV file.
-    Returns a ZIP file containing certificates in both JPG and PDF formats.
+    Generate a single certificate with multiple text boxes.
+    Returns both JPG and PDF as base64 strings.
+    
+    text_boxes format: [{"x": 100, "y": 200, "w": 300, "h": 50, "text": "John Doe", 
+                         "fontSize": 60, "fontColor": "#000000", "fontFile": "font.ttf"}, ...]
     """
     
-    if not template.content_type or not template.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Template must be an image file")
+    if not include_pdf and not include_jpg:
+        raise HTTPException(status_code=400, detail="At least one format (PDF or JPG) must be selected")
     
+    # Parse text boxes JSON
+    try:
+        boxes = json.loads(text_boxes)
+        if not isinstance(boxes, list):
+            raise ValueError("text_boxes must be a JSON array")
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid text_boxes JSON: {str(e)}")
+    
+    # Load template
     try:
         template_bytes = await template.read()
         template_img = Image.open(io.BytesIO(template_bytes)).convert("RGB")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to load template image: {str(e)}")
     
-    try:
-        csv_bytes = await csv_file.read()
-        csv_text = csv_bytes.decode("utf-8")
-        reader = csv.DictReader(io.StringIO(csv_text))
-        rows = list(reader)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {str(e)}")
+    # Generate certificate with all text boxes
+    cert_img = draw_certificate_multi(template_img, boxes)
+    safe_name = sanitize_filename(filename)
     
-    if not rows:
-        raise HTTPException(status_code=400, detail="CSV file is empty")
+    result = {
+        "filename": safe_name,
+    }
     
-    if name_column not in rows[0]:
+    # Generate JPG
+    if include_jpg:
+        jpg_buffer = io.BytesIO()
+        cert_img.save(jpg_buffer, format="JPEG", quality=92)
+        jpg_buffer.seek(0)
+        result["jpg"] = base64.b64encode(jpg_buffer.getvalue()).decode("utf-8")
+    
+    # Generate PDF
+    if include_pdf:
+        pdf_buffer = io.BytesIO()
+        cert_img.save(pdf_buffer, format="PDF", resolution=100.0)
+        pdf_buffer.seek(0)
+        result["pdf"] = base64.b64encode(pdf_buffer.getvalue()).decode("utf-8")
+    
+    return JSONResponse(content=result)
+
+
+def get_smtp_config():
+    """Get SMTP configuration from environment variables."""
+    smtp_host = os.environ.get("EMAIL_HOST", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("EMAIL_PORT", "465"))
+    smtp_user = os.environ.get("EMAIL_USER", "")
+    smtp_pass = os.environ.get("EMAIL_PASS", "")
+    use_tls = os.environ.get("EMAIL_USE_TLS", "true").lower() == "true"
+    
+    if not smtp_user or not smtp_pass:
         raise HTTPException(
-            status_code=400, 
-            detail=f"Column '{name_column}' not found in CSV. Available columns: {list(rows[0].keys())}"
+            status_code=500, 
+            detail="Email credentials not configured. Set EMAIL_USER and EMAIL_PASS environment variables."
         )
     
-    zip_buffer = io.BytesIO()
-    box = (box_x, box_y, box_w, box_h)
-    generated_count = 0
-    
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for row in rows:
-            name = row.get(name_column, "").strip()
-            if not name:
-                continue
-            
-            cert_img = draw_certificate(template_img, name, box, font_size, font_color, font_file)
-            safe_name = sanitize_filename(name)
-            
-            # Save as JPEG
-            jpg_buffer = io.BytesIO()
-            cert_img.save(jpg_buffer, format="JPEG", quality=92)
-            jpg_buffer.seek(0)
-            zf.writestr(f"certificates_jpg/{safe_name}.jpg", jpg_buffer.getvalue())
-            
-            # Save as PDF
-            pdf_buffer = io.BytesIO()
-            cert_img.save(pdf_buffer, format="PDF", resolution=100.0)
-            pdf_buffer.seek(0)
-            zf.writestr(f"certificates_pdf/{safe_name}.pdf", pdf_buffer.getvalue())
-            
-            generated_count += 1
-    
-    if generated_count == 0:
-        raise HTTPException(status_code=400, detail="No valid names found in CSV")
-    
-    zip_buffer.seek(0)
-    
-    return StreamingResponse(
-        zip_buffer,
-        media_type="application/zip",
-        headers={
-            "Content-Disposition": "attachment; filename=certificates.zip",
-            "X-Generated-Count": str(generated_count)
-        }
-    )
+    return {
+        "host": smtp_host,
+        "port": smtp_port,
+        "user": smtp_user,
+        "pass": smtp_pass,
+        "use_tls": use_tls
+    }
 
 
-@app.post("/preview")
-async def preview_certificate(
+@app.get("/email-config")
+async def check_email_config():
+    """Check if email is configured (without exposing credentials)."""
+    smtp_user = os.environ.get("EMAIL_USER", "")
+    smtp_host = os.environ.get("EMAIL_HOST", "smtp.gmail.com")
+    
+    if not smtp_user:
+        return JSONResponse(content={
+            "configured": False,
+            "message": "Email not configured"
+        })
+    
+    # Mask the email for privacy
+    parts = smtp_user.split("@")
+    if len(parts) == 2:
+        masked = parts[0][:3] + "***@" + parts[1]
+    else:
+        masked = smtp_user[:3] + "***"
+    
+    return JSONResponse(content={
+        "configured": True,
+        "sender": masked,
+        "host": smtp_host
+    })
+
+
+@app.post("/send-email")
+async def send_certificate_email(
     template: UploadFile = File(..., description="Certificate template image"),
-    name: str = Form(..., description="Name to preview"),
-    box_x: int = Form(..., description="Selection box X coordinate"),
-    box_y: int = Form(..., description="Selection box Y coordinate"),
-    box_w: int = Form(..., description="Selection box width"),
-    box_h: int = Form(..., description="Selection box height"),
-    font_size: int = Form(60, description="Maximum font size in pixels"),
-    font_color: str = Form("#000000", description="Font color as hex code"),
-    font_file: str = Form("JetBrainsMonoNerdFontPropo-Medium.ttf", description="Font filename"),
+    recipient_email: str = Form(..., description="Recipient email address"),
+    text_boxes: str = Form(..., description="JSON array of text box configurations"),
+    email_subject: str = Form(..., description="Email subject"),
+    email_body_plain: str = Form(..., description="Email body plain text"),
+    email_body_html: str = Form("", description="Email body HTML (optional)"),
+    attach_pdf: bool = Form(True, description="Attach PDF version"),
+    attach_jpg: bool = Form(True, description="Attach JPG version"),
+    filename: str = Form("certificate", description="Base filename for attachments"),
 ):
-    """Generate a single certificate preview."""
+    """
+    Send a single certificate via email with multiple text boxes.
+    This endpoint handles one email at a time - the frontend controls the delay between calls.
+    """
     
+    if not attach_pdf and not attach_jpg:
+        raise HTTPException(status_code=400, detail="At least one attachment type (PDF or JPG) must be selected")
+    
+    # Parse text boxes JSON
+    try:
+        boxes = json.loads(text_boxes)
+        if not isinstance(boxes, list):
+            raise ValueError("text_boxes must be a JSON array")
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid text_boxes JSON: {str(e)}")
+    
+    # Get SMTP config from environment
+    smtp = get_smtp_config()
+    
+    # Load template
     try:
         template_bytes = await template.read()
         template_img = Image.open(io.BytesIO(template_bytes)).convert("RGB")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to load template image: {str(e)}")
     
-    box = (box_x, box_y, box_w, box_h)
-    cert_img = draw_certificate(template_img, name, box, font_size, font_color, font_file)
+    # Generate certificate with all text boxes
+    cert_img = draw_certificate_multi(template_img, boxes)
+    safe_name = sanitize_filename(filename)
     
-    img_buffer = io.BytesIO()
-    cert_img.save(img_buffer, format="JPEG", quality=92)
-    img_buffer.seek(0)
+    # Create email
+    message = MIMEMultipart("alternative")
+    message["Subject"] = email_subject
+    message["From"] = smtp["user"]
+    message["To"] = recipient_email
     
-    return StreamingResponse(
-        img_buffer,
-        media_type="image/jpeg",
-        headers={"Content-Disposition": f"inline; filename=preview.jpg"}
-    )
+    # Attach text parts
+    message.attach(MIMEText(email_body_plain, "plain"))
+    
+    # Only attach HTML if provided
+    if email_body_html.strip():
+        message.attach(MIMEText(email_body_html, "html"))
+    
+    # Attach JPG if requested
+    if attach_jpg:
+        jpg_buffer = io.BytesIO()
+        cert_img.save(jpg_buffer, format="JPEG", quality=92)
+        jpg_buffer.seek(0)
+        
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(jpg_buffer.getvalue())
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f"attachment; filename={safe_name}.jpg")
+        message.attach(part)
+    
+    # Attach PDF if requested
+    if attach_pdf:
+        pdf_buffer = io.BytesIO()
+        cert_img.save(pdf_buffer, format="PDF", resolution=100.0)
+        pdf_buffer.seek(0)
+        
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(pdf_buffer.getvalue())
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f"attachment; filename={safe_name}.pdf")
+        message.attach(part)
+    
+    # Send email
+    try:
+        context = ssl.create_default_context()
+        
+        if smtp["use_tls"]:
+            with smtplib.SMTP_SSL(smtp["host"], smtp["port"], context=context) as server:
+                server.login(smtp["user"], smtp["pass"])
+                server.sendmail(smtp["user"], recipient_email, message.as_string())
+        else:
+            with smtplib.SMTP(smtp["host"], smtp["port"]) as server:
+                server.starttls(context=context)
+                server.login(smtp["user"], smtp["pass"])
+                server.sendmail(smtp["user"], recipient_email, message.as_string())
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": f"Email sent to {recipient_email}",
+            "recipient": recipient_email
+        })
+        
+    except smtplib.SMTPAuthenticationError:
+        raise HTTPException(status_code=401, detail="SMTP authentication failed. Check server credentials.")
+    except smtplib.SMTPException as e:
+        raise HTTPException(status_code=500, detail=f"SMTP error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 
 
 if __name__ == "__main__":
