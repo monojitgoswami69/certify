@@ -123,7 +123,7 @@ export default function App() {
   return (
     <div className="h-screen flex bg-slate-50">
       {/* Sidebar */}
-      <aside className="w-[400px] bg-white border-r border-slate-200 overflow-y-auto p-4 space-y-4 flex-shrink-0">
+      <aside className="w-[420px] bg-white border-r border-slate-200 overflow-y-auto p-4 space-y-4 flex-shrink-0">
         {/* Step 1: Upload Template */}
         <StepCard number={1} title="Upload Template" status={step1Status}>
           {templateImage ? (
@@ -150,9 +150,7 @@ export default function App() {
 
         {/* Step 2: Import Data */}
         <StepCard number={2} title="Import Data" status={step2Status}>
-          {step2Status === 'pending' ? (
-            <p className="text-sm text-slate-400">Upload a template first</p>
-          ) : csvData.length > 0 ? (
+          {csvData.length > 0 ? (
             <div
               className="flex items-center justify-between px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors group"
               onClick={() => setShowCsvPreview(true)}
@@ -180,53 +178,39 @@ export default function App() {
 
         {/* Step 3: Define Text Areas */}
         <StepCard number={3} title="Define Text Areas" status={step3Status}>
-          {step3Status === 'pending' ? (
-            <p className="text-sm text-slate-400">Import CSV data first</p>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-sm text-slate-500">
-                Draw rectangles on the template where text should appear.
-              </p>
+          <div className="space-y-3">
+            <p className="text-sm text-slate-500">
+              Draw rectangles on the template where text should appear.
+            </p>
 
-              {/* Preview Toggle */}
-              <div className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
-                <span className="text-sm text-slate-600">Preview Data</span>
-                <button
-                  onClick={() => setPreviewEnabled(!previewEnabled)}
-                  className={`p-1.5 rounded-md transition-colors ${previewEnabled
-                    ? 'bg-primary-100 text-primary-600'
-                    : 'bg-slate-200 text-slate-500'
-                    }`}
-                >
-                  {previewEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                </button>
-              </div>
+            {/* Preview Toggle */}
+            <div className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+              <span className="text-sm text-slate-600">Preview Data</span>
+              <button
+                onClick={() => setPreviewEnabled(!previewEnabled)}
+                className={`p-1.5 rounded-md transition-colors ${previewEnabled
+                  ? 'bg-primary-100 text-primary-600'
+                  : 'bg-slate-200 text-slate-500'
+                  }`}
+              >
+                {previewEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+              </button>
             </div>
-          )}
+          </div>
         </StepCard>
 
         {/* Step 4: Customize Box */}
         <StepCard number={4} title="Customize Box" status={step4Status}>
-          {step4Status === 'pending' ? (
-            <p className="text-sm text-slate-400">Draw a text box first</p>
-          ) : (
-            <BoxCustomizer />
-          )}
+          <BoxCustomizer />
         </StepCard>
 
         {/* Step 5: Generate */}
         <StepCard number={5} title="Generate & Deliver" status={step5Status}>
-          {step5Status === 'pending' ? (
-            <p className="text-sm text-slate-400">Assign CSV fields to boxes first</p>
-          ) : (
-            <>
-              <GenerateButton />
-              {error && (
-                <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
-                  {error}
-                </div>
-              )}
-            </>
+          <GenerateButton />
+          {error && (
+            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+              {error}
+            </div>
           )}
         </StepCard>
       </aside>

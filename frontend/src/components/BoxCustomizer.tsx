@@ -132,8 +132,9 @@ export function BoxCustomizer() {
                 <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1.5">Size (px)</label>
                     <input
-                        type="text"
-                        inputMode="numeric"
+                        type="number"
+                        min={10}
+                        max={200}
                         value={fontSizeInput}
                         onChange={(e) => handleFontSizeChange(e.target.value)}
                         onBlur={handleFontSizeBlur}
