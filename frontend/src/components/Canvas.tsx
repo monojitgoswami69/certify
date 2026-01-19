@@ -135,12 +135,39 @@ export function Canvas() {
             const displayFontSize = currentFontSize * displayScale;
             ctx.font = `${displayFontSize}px "JetBrains Mono", monospace`;
             ctx.fillStyle = box.fontColor;
-            ctx.textBaseline = 'alphabetic';
-            ctx.textAlign = 'center';
 
-            const centerX = displayBox.x + displayBox.w / 2;
-            const bottomY = displayBox.y + displayBox.h - 8;
-            ctx.fillText(previewText, centerX, bottomY);
+            ctx.measureText(previewText); // Measure for potential future use
+            const textHeight = displayFontSize;
+
+            // Get alignment from box (with defaults)
+            const hAlign = 'hAlign' in box ? box.hAlign : 'center';
+            const vAlign = 'vAlign' in box ? box.vAlign : 'bottom';
+
+            // Calculate X position based on horizontal alignment
+            let textX: number;
+            if (hAlign === 'left') {
+                ctx.textAlign = 'left';
+                textX = displayBox.x + 5;
+            } else if (hAlign === 'right') {
+                ctx.textAlign = 'right';
+                textX = displayBox.x + displayBox.w - 5;
+            } else {
+                ctx.textAlign = 'center';
+                textX = displayBox.x + displayBox.w / 2;
+            }
+
+            // Calculate Y position based on vertical alignment
+            let textY: number;
+            ctx.textBaseline = 'alphabetic';
+            if (vAlign === 'top') {
+                textY = displayBox.y + textHeight + 5;
+            } else if (vAlign === 'middle') {
+                textY = displayBox.y + (displayBox.h + textHeight) / 2 - 2;
+            } else {
+                textY = displayBox.y + displayBox.h - 8;
+            }
+
+            ctx.fillText(previewText, textX, textY);
         }
 
         // Handles for active box

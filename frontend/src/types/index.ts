@@ -5,6 +5,9 @@ export interface Selection {
     h: number;
 }
 
+export type HorizontalAlign = 'left' | 'center' | 'right';
+export type VerticalAlign = 'top' | 'middle' | 'bottom';
+
 export interface TextBox {
     id: string;
     x: number;
@@ -15,6 +18,8 @@ export interface TextBox {
     fontSize: number;
     fontColor: string;
     fontFile: string;
+    hAlign: HorizontalAlign;
+    vAlign: VerticalAlign;
 }
 
 export interface Font {

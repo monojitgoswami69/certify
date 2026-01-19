@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback } from 'react';
 import { Send, Pause, Play, X, Loader2, CheckCircle2, AlertCircle, RefreshCw, Download, Clock } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
-import { sendCertificateEmail, replaceTemplateVariables, delay, downloadErrorReport, buildTextBoxConfigs, sanitizeFilename } from '../lib/api';
+import { sendEmailV2, replaceTemplateVariables, delay, downloadErrorReport, sanitizeFilename } from '../lib/api';
+import { generateCertificate, loadFont } from '../lib/certificateGenerator';
 import type { CsvRow } from '../types';
 
 interface FailedRecord {
@@ -20,7 +21,7 @@ interface EmailLogs {
 
 export function EmailSendButton() {
     const {
-        templateFile,
+        templateImage,
         csvData,
         boxes,
         emailColumn,
@@ -40,7 +41,7 @@ export function EmailSendButton() {
     const [localPaused, setLocalPaused] = useState(false);
 
     const validBoxes = boxes.filter(b => b.field);
-    const isReady = templateFile &&
+    const isReady = templateImage &&
         csvData.length > 0 &&
         validBoxes.length > 0 &&
         emailColumn &&
@@ -63,7 +64,7 @@ export function EmailSendButton() {
         records: Array<{ rowIndex: number; row: CsvRow }>,
         isRetry: boolean = false
     ) => {
-        if (!templateFile || validBoxes.length === 0) return;
+        if (!templateImage || validBoxes.length === 0) return;
 
         abortRef.current = false;
         pauseRef.current = false;
@@ -74,14 +75,20 @@ export function EmailSendButton() {
         const errors: FailedRecord[] = [];
         const sent: Array<{ rowIndex: number; name: string; email: string }> = [];
 
+        // Pre-load all fonts
         setEmailProgress({
             current: 0,
             total: records.length,
-            currentRecipient: '',
+            currentRecipient: 'Loading fonts...',
             status: 'sending',
             errors: [],
             sent: [],
         });
+
+        const uniqueFonts = new Set(boxes.map(b => b.fontFile).filter(Boolean));
+        for (const font of uniqueFonts) {
+            await loadFont(font);
+        }
 
         if (!isRetry) {
             setLogs({ firstSent: null, lastSent: null, totalElapsed: 0 });
@@ -123,8 +130,6 @@ export function EmailSendButton() {
                 continue;
             }
 
-            const textBoxConfigs = buildTextBoxConfigs(boxes, row);
-
             setEmailProgress({
                 current: i + 1,
                 currentRecipient: displayName,
@@ -133,22 +138,32 @@ export function EmailSendButton() {
             });
 
             try {
+                // Generate certificate client-side
+                const cert = await generateCertificate({
+                    templateImage,
+                    boxes: validBoxes,
+                    row,
+                    filename: sanitizeFilename(displayName),
+                    includeJpg: emailSettings.attachJpg,
+                    includePdf: emailSettings.attachPdf,
+                    includeBase64: true,  // We need base64 for email
+                });
+
                 const subject = replaceTemplateVariables(emailSettings.subject, row);
                 const bodyPlain = replaceTemplateVariables(emailSettings.bodyPlain, row);
                 const bodyHtml = emailSettings.bodyHtml.trim()
                     ? replaceTemplateVariables(emailSettings.bodyHtml, row)
                     : '';
 
-                await sendCertificateEmail({
-                    templateFile,
+                // Send via new simplified API
+                await sendEmailV2({
                     recipientEmail: email,
-                    textBoxes: textBoxConfigs,
                     emailSubject: subject,
                     emailBodyPlain: bodyPlain,
                     emailBodyHtml: bodyHtml,
-                    attachPdf: emailSettings.attachPdf,
-                    attachJpg: emailSettings.attachJpg,
-                    filename: sanitizeFilename(displayName),
+                    filename: cert.filename,
+                    jpgBase64: cert.jpgBase64,
+                    pdfBase64: cert.pdfBase64,
                 });
 
                 sent.push({ rowIndex, name: displayName, email });
@@ -161,25 +176,33 @@ export function EmailSendButton() {
                 }));
 
                 setEmailProgress({
-                    sent: [...sent],
+                    current: i + 1,
+                    currentRecipient: displayName,
                     errors: errors.map(e => ({ rowIndex: e.rowIndex, name: e.name, email: e.email, error: e.error })),
+                    sent: [...sent],
                 });
+
+                // Delay before next email
+                if (i < records.length - 1 && !abortRef.current) {
+                    await delay(emailSettings.delayMs);
+                }
 
             } catch (err) {
                 const errorMsg = err instanceof Error ? err.message : 'Failed to send';
                 errors.push({ rowIndex, name: displayName, email, row, error: errorMsg });
                 setEmailProgress({
-                    sent: [...sent],
+                    current: i + 1,
+                    currentRecipient: displayName,
                     errors: errors.map(e => ({ rowIndex: e.rowIndex, name: e.name, email: e.email, error: e.error })),
+                    sent: [...sent],
                 });
-            }
-
-            if (i < records.length - 1 && !abortRef.current) {
-                await delay(emailSettings.delayMs);
             }
         }
 
         setEmailProgress({
+            current: records.length,
+            total: records.length,
+            currentRecipient: '',
             status: 'completed',
             errors: errors.map(e => ({ rowIndex: e.rowIndex, name: e.name, email: e.email, error: e.error })),
             sent: [...sent],
@@ -191,9 +214,9 @@ export function EmailSendButton() {
         }));
 
         setRetryQueue(errors);
-    }, [templateFile, boxes, emailColumn, emailSettings, validBoxes, setEmailProgress, setError]);
+    }, [templateImage, boxes, validBoxes, emailColumn, emailSettings, setEmailProgress, setError]);
 
-    const handleStartSending = useCallback(async () => {
+    const handleSend = useCallback(async () => {
         const records = csvData.map((row, i) => ({ rowIndex: i + 2, row }));
         await sendBatch(records, false);
     }, [csvData, sendBatch]);
@@ -221,19 +244,11 @@ export function EmailSendButton() {
         setRetryQueue([]);
     };
 
-    const handleDownloadFailures = () => {
-        if (emailProgress.errors.length > 0) {
-            downloadErrorReport(emailProgress.errors, 'email');
-        }
+    const handleDownloadErrorReport = () => {
+        downloadErrorReport(emailProgress.errors, 'email');
     };
 
-    const formatTime = (date: Date | null) => {
-        if (!date) return '-';
-        return date.toLocaleTimeString();
-    };
-
-    const formatElapsed = (ms: number) => {
-        if (ms < 1000) return `${ms}ms`;
+    const formatDuration = (ms: number): string => {
         const seconds = Math.floor(ms / 1000);
         if (seconds < 60) return `${seconds}s`;
         const minutes = Math.floor(seconds / 60);
@@ -241,81 +256,77 @@ export function EmailSendButton() {
         return `${minutes}m ${secs}s`;
     };
 
-    const progressPercent = emailProgress.total > 0
-        ? Math.round((emailProgress.current / emailProgress.total) * 100)
-        : 0;
+    const formatTime = (date: Date | null): string => {
+        if (!date) return '--:--:--';
+        return date.toLocaleTimeString();
+    };
 
     // Idle state
     if (emailProgress.status === 'idle') {
         return (
-            <div className="space-y-3">
-                <button
-                    onClick={handleStartSending}
-                    disabled={!isReady}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-primary-600 to-indigo-600 text-white rounded-lg font-medium hover:from-primary-700 hover:to-indigo-700 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed transition-all shadow-lg shadow-primary-500/25"
-                >
-                    <Send className="w-5 h-5" />
-                    <span>Send to {csvData.length} Recipients</span>
-                </button>
-
-                {!isReady && (
-                    <p className="text-xs text-amber-600 text-center">
-                        {validBoxes.length === 0 && 'Assign CSV fields to text boxes • '}
-                        {!emailColumn && 'Select an email column • '}
-                        {!emailConfig?.configured && 'Email not configured on server • '}
-                        {(!emailSettings.attachPdf && !emailSettings.attachJpg) && 'Select at least one attachment'}
-                    </p>
-                )}
-            </div>
+            <button
+                onClick={handleSend}
+                disabled={!isReady}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-primary-600 to-indigo-600 text-white rounded-lg font-medium hover:from-primary-700 hover:to-indigo-700 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed transition-all shadow-lg shadow-primary-500/25"
+            >
+                <Send className="w-5 h-5" />
+                <span>Send to {csvData.length} Recipients</span>
+            </button>
         );
     }
 
     // Sending / Paused state
     if (emailProgress.status === 'sending' || emailProgress.status === 'paused') {
         return (
-            <div className="space-y-3">
-                <div className="relative h-2 bg-slate-200 rounded-full overflow-hidden">
-                    <div
-                        className={`absolute inset-y-0 left-0 transition-all duration-300 ${emailProgress.status === 'paused' ? 'bg-amber-500' : 'bg-primary-600'
-                            }`}
-                        style={{ width: `${progressPercent}%` }}
-                    />
-                </div>
-
-                <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
-                        {emailProgress.status === 'paused' ? (
-                            <Pause className="w-4 h-4 text-amber-500" />
-                        ) : (
-                            <Loader2 className="w-4 h-4 text-primary-600 animate-spin" />
-                        )}
+            <div className="space-y-4">
+                {/* Progress */}
+                <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
                         <span className="text-slate-600">
-                            {emailProgress.status === 'paused' ? 'Paused' : 'Sending'}:{' '}
-                            <span className="font-medium">{emailProgress.currentRecipient}</span>
+                            Sending {emailProgress.current}/{emailProgress.total}
+                        </span>
+                        <span className="text-slate-500 truncate max-w-[150px]">
+                            {emailProgress.currentRecipient}
                         </span>
                     </div>
-                    <span className="text-slate-500">
-                        {emailProgress.current} / {emailProgress.total}
-                    </span>
+                    <div className="relative h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                            className={`absolute left-0 top-0 h-full transition-all rounded-full ${emailProgress.status === 'paused' ? 'bg-amber-500' : 'bg-primary-600'
+                                }`}
+                            style={{ width: `${emailProgress.total > 0 ? (emailProgress.current / emailProgress.total) * 100 : 0}%` }}
+                        />
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-500">
+                        <span>{emailProgress.sent.length} sent</span>
+                        {emailProgress.errors.length > 0 && (
+                            <span className="text-red-500">{emailProgress.errors.length} failed</span>
+                        )}
+                    </div>
                 </div>
 
+                {/* Controls */}
                 <div className="flex gap-2">
                     <button
                         onClick={handlePauseResume}
-                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg font-medium transition-colors ${localPaused
-                            ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                            : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                            }`}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
                     >
-                        {localPaused ? <><Play className="w-4 h-4" />Resume</> : <><Pause className="w-4 h-4" />Pause</>}
+                        {localPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                        <span>{localPaused ? 'Resume' : 'Pause'}</span>
                     </button>
                     <button
                         onClick={handleStop}
-                        className="flex items-center justify-center gap-2 px-3 py-2 bg-red-100 text-red-700 rounded-lg font-medium hover:bg-red-200 transition-colors"
+                        className="flex items-center justify-center px-3 py-2 border border-red-300 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
                     >
-                        <X className="w-4 h-4" />Stop
+                        <X className="w-4 h-4" />
                     </button>
                 </div>
+
+                {emailProgress.status === 'sending' && (
+                    <div className="flex items-center justify-center gap-2 text-sm text-slate-500">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Sending emails...</span>
+                    </div>
+                )}
             </div>
         );
     }
@@ -323,74 +334,64 @@ export function EmailSendButton() {
     // Completed state
     if (emailProgress.status === 'completed') {
         const hasErrors = emailProgress.errors.length > 0;
-        const allFailed = emailProgress.sent.length === 0 && hasErrors;
 
         return (
-            <div className="space-y-3">
-                {/* Logs */}
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="flex items-center gap-2 text-xs text-slate-500 mb-2">
-                        <Clock className="w-3.5 h-3.5" />
-                        <span className="font-medium">Email Log</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="space-y-4">
+                {/* Success/Error Summary */}
+                <div className={`p-3 rounded-lg ${hasErrors ? 'bg-amber-50 border border-amber-200' : 'bg-emerald-50 border border-emerald-200'}`}>
+                    <div className="flex items-start gap-2">
+                        {hasErrors ? (
+                            <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                        ) : (
+                            <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                        )}
                         <div>
-                            <span className="text-slate-400">First Sent:</span>{' '}
-                            <span className="text-slate-600">{formatTime(logs.firstSent)}</span>
-                        </div>
-                        <div>
-                            <span className="text-slate-400">Last Sent:</span>{' '}
-                            <span className="text-slate-600">{formatTime(logs.lastSent)}</span>
-                        </div>
-                        <div className="col-span-2">
-                            <span className="text-slate-400">Total Time:</span>{' '}
-                            <span className="text-slate-600 font-medium">{formatElapsed(logs.totalElapsed)}</span>
+                            <p className={`font-medium ${hasErrors ? 'text-amber-800' : 'text-emerald-800'}`}>
+                                {hasErrors ? 'Completed with issues' : 'All emails sent!'}
+                            </p>
+                            <p className={`text-sm ${hasErrors ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                {emailProgress.sent.length} of {csvData.length} emails sent
+                            </p>
                         </div>
                     </div>
                 </div>
 
-                {/* Success summary */}
-                {!hasErrors && (
-                    <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-                        <div className="flex items-center gap-2">
-                            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                            <span className="text-sm font-medium text-emerald-800">
-                                All {emailProgress.sent.length} emails sent successfully
-                            </span>
-                        </div>
+                {/* Logs */}
+                <div className="p-3 bg-slate-50 rounded-lg space-y-1 text-xs">
+                    <div className="flex items-center gap-2 text-slate-600">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>First sent: {formatTime(logs.firstSent)}</span>
                     </div>
-                )}
+                    <div className="flex items-center gap-2 text-slate-600">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>Last sent: {formatTime(logs.lastSent)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-slate-600">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>Total time: {formatDuration(logs.totalElapsed)}</span>
+                    </div>
+                </div>
 
-                {/* Failure section */}
+                {/* Errors section */}
                 {hasErrors && (
-                    <div className={`p-3 rounded-lg border ${allFailed ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
-                        <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                                <AlertCircle className={`w-5 h-5 ${allFailed ? 'text-red-600' : 'text-amber-600'}`} />
-                                <span className={`text-sm font-medium ${allFailed ? 'text-red-800' : 'text-amber-800'}`}>
-                                    {emailProgress.errors.length} failed
-                                </span>
-                            </div>
-                            {emailProgress.sent.length > 0 && (
-                                <span className="text-xs text-emerald-600">
-                                    {emailProgress.sent.length} succeeded
-                                </span>
-                            )}
-                        </div>
-
-                        <div className="flex gap-2 mt-3">
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg space-y-2">
+                        <p className="text-sm font-medium text-red-800">
+                            {emailProgress.errors.length} email{emailProgress.errors.length > 1 ? 's' : ''} failed
+                        </p>
+                        <div className="flex gap-2">
                             <button
                                 onClick={handleRetry}
-                                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700 transition-colors"
+                                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 transition-colors"
                             >
-                                <RefreshCw className="w-4 h-4" />
+                                <RefreshCw className="w-3.5 h-3.5" />
                                 Retry Failed
                             </button>
                             <button
-                                onClick={handleDownloadFailures}
-                                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-300 transition-colors"
+                                onClick={handleDownloadErrorReport}
+                                className="flex items-center justify-center gap-1.5 px-3 py-1.5 border border-red-300 text-red-600 rounded-md text-sm font-medium hover:bg-red-100 transition-colors"
                             >
-                                <Download className="w-4 h-4" />
+                                <Download className="w-3.5 h-3.5" />
+                                Report
                             </button>
                         </div>
                     </div>
@@ -401,11 +402,21 @@ export function EmailSendButton() {
                     onClick={handleDone}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 text-white rounded-lg font-medium hover:bg-slate-900 transition-colors"
                 >
+                    <CheckCircle2 className="w-4 h-4" />
                     Done
                 </button>
             </div>
         );
     }
-
-    return null;
+    // Default fallback - show send button
+    return (
+        <button
+            onClick={handleSend}
+            disabled={!isReady}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-primary-600 to-indigo-600 text-white rounded-lg font-medium hover:from-primary-700 hover:to-indigo-700 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed transition-all shadow-lg shadow-primary-500/25"
+        >
+            <Send className="w-5 h-5" />
+            <span>Send to {csvData.length} Recipients</span>
+        </button>
+    );
 }

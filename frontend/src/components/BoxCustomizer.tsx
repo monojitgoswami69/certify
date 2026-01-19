@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
+import type { HorizontalAlign, VerticalAlign } from '../types';
 
 export function BoxCustomizer() {
     const {
@@ -67,6 +68,18 @@ export function BoxCustomizer() {
             updateBox(activeBox.id, { fontSize: 200 });
         }
     };
+
+    const hAlignOptions: { value: HorizontalAlign; icon: typeof AlignLeft; label: string }[] = [
+        { value: 'left', icon: AlignLeft, label: 'Left' },
+        { value: 'center', icon: AlignCenter, label: 'Center' },
+        { value: 'right', icon: AlignRight, label: 'Right' },
+    ];
+
+    const vAlignOptions: { value: VerticalAlign; label: string }[] = [
+        { value: 'top', label: 'Top' },
+        { value: 'middle', label: 'Middle' },
+        { value: 'bottom', label: 'Bottom' },
+    ];
 
     return (
         <div className="space-y-4">
@@ -149,6 +162,53 @@ export function BoxCustomizer() {
                         onChange={(e) => updateBox(activeBox.id, { fontColor: e.target.value })}
                         className="w-full h-10 border border-slate-200 rounded-lg cursor-pointer"
                     />
+                </div>
+            </div>
+
+            {/* Alignment Controls */}
+            <div className="space-y-2">
+                <label className="block text-xs font-medium text-slate-500">Alignment</label>
+
+                <div className="grid grid-cols-2 gap-3">
+                    {/* Horizontal Alignment */}
+                    <div>
+                        <p className="text-xs text-slate-400 mb-1">Horizontal</p>
+                        <div className="flex bg-slate-100 rounded-lg p-0.5">
+                            {hAlignOptions.map(({ value, icon: Icon, label }) => (
+                                <button
+                                    key={value}
+                                    onClick={() => updateBox(activeBox.id, { hAlign: value })}
+                                    className={`flex-1 p-1.5 rounded-md transition-all ${activeBox.hAlign === value
+                                        ? 'bg-white text-primary-600 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
+                                        }`}
+                                    title={label}
+                                >
+                                    <Icon className="w-4 h-4 mx-auto" />
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Vertical Alignment */}
+                    <div>
+                        <p className="text-xs text-slate-400 mb-1">Vertical</p>
+                        <div className="flex bg-slate-100 rounded-lg p-0.5">
+                            {vAlignOptions.map(({ value, label }) => (
+                                <button
+                                    key={value}
+                                    onClick={() => updateBox(activeBox.id, { vAlign: value })}
+                                    className={`flex-1 px-2 py-1.5 rounded-md transition-all text-xs font-medium ${activeBox.vAlign === value
+                                        ? 'bg-white text-primary-600 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
+                                        }`}
+                                    title={label}
+                                >
+                                    {label.charAt(0)}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                 </div>
             </div>
 

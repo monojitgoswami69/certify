@@ -41,7 +41,7 @@ interface AppStore {
     boxes: TextBox[];
     activeBoxId: string | null;
     displayScale: number;
-    addBox: (box: Omit<TextBox, 'id' | 'field' | 'fontSize' | 'fontColor' | 'fontFile'>) => void;
+    addBox: (box: Omit<TextBox, 'id' | 'field' | 'fontSize' | 'fontColor' | 'fontFile' | 'hAlign' | 'vAlign'>) => void;
     updateBox: (id: string, updates: Partial<TextBox>) => void;
     deleteBox: (id: string) => void;
     setActiveBox: (id: string | null) => void;
@@ -148,6 +148,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
             fontSize: defaultFontSize,
             fontColor: defaultFontColor,
             fontFile: defaultFont,
+            hAlign: 'center',
+            vAlign: 'bottom',
         };
         set((state) => ({
             boxes: [...state.boxes, newBox],

@@ -2,7 +2,8 @@ import { useState, useRef, useCallback } from 'react';
 import { Download, Mail, Loader2, Pause, Play, X, CheckCircle2, AlertCircle, RefreshCw, Clock } from 'lucide-react';
 import JSZip from 'jszip';
 import { useAppStore } from '../store/appStore';
-import { generateSingleCertificate, downloadBlob, fetchEmailConfig, delay, downloadErrorReport, buildTextBoxConfigs, sanitizeFilename } from '../lib/api';
+import { downloadBlob, fetchEmailConfig, delay, downloadErrorReport, sanitizeFilename } from '../lib/api';
+import { generateCertificate, loadFont } from '../lib/certificateGenerator';
 import type { CsvRow } from '../types';
 
 interface FailedRecord {
@@ -22,7 +23,7 @@ interface GenerateProgress {
     current: number;
     total: number;
     currentName: string;
-    status: 'idle' | 'generating' | 'paused' | 'completed' | 'zipping';
+    status: 'idle' | 'generating' | 'paused' | 'completed' | 'zipping' | 'loading-fonts';
     errors: FailedRecord[];
     generated: number;
 }
@@ -44,7 +45,7 @@ const defaultLogs: GenerateLogs = {
 
 export function GenerateButton() {
     const {
-        templateFile,
+        templateImage,
         csvData,
         boxes,
         apiOnline,
@@ -61,7 +62,7 @@ export function GenerateButton() {
     const [localPaused, setLocalPaused] = useState(false);
 
     const validBoxes = boxes.filter(b => b.field);
-    const isReady = templateFile && csvData.length > 0 && validBoxes.length > 0 && apiOnline;
+    const isReady = templateImage && csvData.length > 0 && validBoxes.length > 0 && apiOnline;
 
     const getFilenameBasis = (row: CsvRow): string => {
         const nameBox = boxes.find(b => b.field.toLowerCase().includes('name'));
@@ -78,7 +79,7 @@ export function GenerateButton() {
         records: Array<{ rowIndex: number; row: CsvRow }>,
         isRetry: boolean = false
     ) => {
-        if (!templateFile || validBoxes.length === 0) return;
+        if (!templateImage || validBoxes.length === 0) return;
 
         abortRef.current = false;
         pauseRef.current = false;
@@ -87,7 +88,22 @@ export function GenerateButton() {
 
         const startTime = Date.now();
         const errors: FailedRecord[] = [];
-        const certificates: Array<{ filename: string; jpg?: string; pdf?: string }> = [];
+        const certificates: Array<{ filename: string; jpgBlob?: Blob; pdfBlob?: Blob }> = [];
+
+        // Pre-load all fonts
+        setProgress({
+            current: 0,
+            total: records.length,
+            currentName: 'Loading fonts...',
+            status: 'loading-fonts',
+            errors: [],
+            generated: 0,
+        });
+
+        const uniqueFonts = new Set(boxes.map(b => b.fontFile).filter(Boolean));
+        for (const font of uniqueFonts) {
+            await loadFont(font);
+        }
 
         setProgress({
             current: 0,
@@ -119,10 +135,10 @@ export function GenerateButton() {
 
             const { rowIndex, row } = records[i];
             const displayName = getFilenameBasis(row);
-            const textBoxConfigs = buildTextBoxConfigs(boxes, row);
 
-            const missingFields = textBoxConfigs.filter(tb => !tb.text.trim());
-            if (missingFields.length === textBoxConfigs.length) {
+            // Check if all fields are empty
+            const hasContent = validBoxes.some(box => row[box.field]?.trim());
+            if (!hasContent) {
                 errors.push({ rowIndex, name: displayName || '(empty)', row, error: 'All text fields are empty' });
                 setProgress(prev => ({
                     ...prev,
@@ -139,18 +155,20 @@ export function GenerateButton() {
             }));
 
             try {
-                const result = await generateSingleCertificate({
-                    templateFile,
-                    textBoxes: textBoxConfigs,
-                    includePdf: true,
-                    includeJpg: true,
+                // Client-side generation
+                const result = await generateCertificate({
+                    templateImage,
+                    boxes: validBoxes,
+                    row,
                     filename: sanitizeFilename(displayName),
+                    includeJpg: true,
+                    includePdf: true,
                 });
 
                 certificates.push({
                     filename: result.filename,
-                    jpg: result.jpg,
-                    pdf: result.pdf,
+                    jpgBlob: result.jpgBlob,
+                    pdfBlob: result.pdfBlob,
                 });
 
                 setProgress(prev => ({
@@ -185,13 +203,11 @@ export function GenerateButton() {
                 const pdfFolder = zip.folder('certificates_pdf');
 
                 for (const cert of certificates) {
-                    if (cert.jpg && jpgFolder) {
-                        const jpgData = Uint8Array.from(atob(cert.jpg), c => c.charCodeAt(0));
-                        jpgFolder.file(`${cert.filename}.jpg`, jpgData);
+                    if (cert.jpgBlob && jpgFolder) {
+                        jpgFolder.file(`${cert.filename}.jpg`, cert.jpgBlob);
                     }
-                    if (cert.pdf && pdfFolder) {
-                        const pdfData = Uint8Array.from(atob(cert.pdf), c => c.charCodeAt(0));
-                        pdfFolder.file(`${cert.filename}.pdf`, pdfData);
+                    if (cert.pdfBlob && pdfFolder) {
+                        pdfFolder.file(`${cert.filename}.pdf`, cert.pdfBlob);
                     }
                 }
 
@@ -215,7 +231,7 @@ export function GenerateButton() {
         }));
 
         setRetryQueue(errors);
-    }, [templateFile, boxes, validBoxes, setError]);
+    }, [templateImage, boxes, validBoxes, setError]);
 
     const handleGenerate = useCallback(async () => {
         const records = csvData.map((row, i) => ({ rowIndex: i + 2, row }));
@@ -249,25 +265,22 @@ export function GenerateButton() {
         try {
             const config = await fetchEmailConfig();
             setEmailConfig(config);
-        } catch (err) {
-            console.error('Failed to fetch email config:', err);
-        }
-        setViewMode('email');
-    };
-
-    const handleDownloadFailures = () => {
-        if (progress.errors.length > 0) {
-            downloadErrorReport(progress.errors, 'generation');
+            setViewMode('email');
+        } catch {
+            setError('Failed to fetch email configuration');
         }
     };
 
-    const formatTime = (date: Date | null) => {
-        if (!date) return '-';
-        return date.toLocaleTimeString();
+    const handleDownloadErrorReport = () => {
+        downloadErrorReport(progress.errors.map(e => ({
+            rowIndex: e.rowIndex,
+            name: e.name,
+            email: '',
+            error: e.error,
+        })), 'generation');
     };
 
-    const formatElapsed = (ms: number) => {
-        if (ms < 1000) return `${ms}ms`;
+    const formatDuration = (ms: number): string => {
         const seconds = Math.floor(ms / 1000);
         if (seconds < 60) return `${seconds}s`;
         const minutes = Math.floor(seconds / 60);
@@ -275,11 +288,12 @@ export function GenerateButton() {
         return `${minutes}m ${secs}s`;
     };
 
-    const progressPercent = progress.total > 0
-        ? Math.round((progress.current / progress.total) * 100)
-        : 0;
+    const formatTime = (date: Date | null): string => {
+        if (!date) return '--:--:--';
+        return date.toLocaleTimeString();
+    };
 
-    // Idle state
+    // Idle state - show action buttons
     if (progress.status === 'idle') {
         return (
             <div className="space-y-3">
@@ -310,56 +324,57 @@ export function GenerateButton() {
         );
     }
 
-    // Generating / Paused / Zipping state
-    if (progress.status === 'generating' || progress.status === 'paused' || progress.status === 'zipping') {
+    // Generating / Paused / Zipping / Loading fonts state
+    if (progress.status === 'generating' || progress.status === 'paused' || progress.status === 'zipping' || progress.status === 'loading-fonts') {
         return (
-            <div className="space-y-3">
-                <div className="relative h-2 bg-slate-200 rounded-full overflow-hidden">
-                    <div
-                        className={`absolute inset-y-0 left-0 transition-all duration-300 ${progress.status === 'paused' ? 'bg-amber-500' :
-                            progress.status === 'zipping' ? 'bg-emerald-500' : 'bg-primary-600'
-                            }`}
-                        style={{ width: `${progressPercent}%` }}
-                    />
-                </div>
-
-                <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
-                        {progress.status === 'paused' ? (
-                            <Pause className="w-4 h-4 text-amber-500" />
-                        ) : progress.status === 'zipping' ? (
-                            <Loader2 className="w-4 h-4 text-emerald-600 animate-spin" />
-                        ) : (
-                            <Loader2 className="w-4 h-4 text-primary-600 animate-spin" />
-                        )}
+            <div className="space-y-4">
+                {/* Progress */}
+                <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
                         <span className="text-slate-600">
-                            {progress.status === 'paused' ? 'Paused' :
-                                progress.status === 'zipping' ? 'Creating ZIP...' : 'Generating'}:{' '}
-                            <span className="font-medium">{progress.currentName}</span>
+                            {progress.status === 'loading-fonts' ? 'Loading fonts...' :
+                                progress.status === 'zipping' ? 'Creating ZIP...' :
+                                    `Generating ${progress.current}/${progress.total}`}
                         </span>
+                        <span className="text-slate-500">{progress.currentName}</span>
                     </div>
-                    <span className="text-slate-500">
-                        {progress.generated} / {progress.total}
-                    </span>
+                    <div className="relative h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                            className={`absolute left-0 top-0 h-full transition-all rounded-full ${progress.status === 'paused' ? 'bg-amber-500' : 'bg-primary-600'
+                                }`}
+                            style={{ width: `${progress.total > 0 ? (progress.current / progress.total) * 100 : 0}%` }}
+                        />
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-500">
+                        <span>{progress.generated} generated</span>
+                        {progress.errors.length > 0 && (
+                            <span className="text-red-500">{progress.errors.length} failed</span>
+                        )}
+                    </div>
                 </div>
 
-                {progress.status !== 'zipping' && (
-                    <div className="flex gap-2">
-                        <button
-                            onClick={handlePauseResume}
-                            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg font-medium transition-colors ${localPaused
-                                ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                                : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                                }`}
-                        >
-                            {localPaused ? <><Play className="w-4 h-4" />Resume</> : <><Pause className="w-4 h-4" />Pause</>}
-                        </button>
-                        <button
-                            onClick={handleStop}
-                            className="flex items-center justify-center gap-2 px-3 py-2 bg-red-100 text-red-700 rounded-lg font-medium hover:bg-red-200 transition-colors"
-                        >
-                            <X className="w-4 h-4" />Stop
-                        </button>
+                {/* Controls */}
+                <div className="flex gap-2">
+                    <button
+                        onClick={handlePauseResume}
+                        disabled={progress.status === 'zipping' || progress.status === 'loading-fonts'}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                        {localPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                        <span>{localPaused ? 'Resume' : 'Pause'}</span>
+                    </button>
+                    <button
+                        onClick={handleStop}
+                        className="flex items-center justify-center px-3 py-2 border border-red-300 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+
+                {progress.status === 'zipping' && (
+                    <div className="flex items-center justify-center gap-2 text-sm text-slate-500">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Compressing files...</span>
                     </div>
                 )}
             </div>
@@ -369,74 +384,64 @@ export function GenerateButton() {
     // Completed state
     if (progress.status === 'completed') {
         const hasErrors = progress.errors.length > 0;
-        const allFailed = progress.generated === 0 && hasErrors;
 
         return (
-            <div className="space-y-3">
-                {/* Logs */}
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="flex items-center gap-2 text-xs text-slate-500 mb-2">
-                        <Clock className="w-3.5 h-3.5" />
-                        <span className="font-medium">Generation Log</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="space-y-4">
+                {/* Success/Error Summary */}
+                <div className={`p-3 rounded-lg ${hasErrors ? 'bg-amber-50 border border-amber-200' : 'bg-emerald-50 border border-emerald-200'}`}>
+                    <div className="flex items-start gap-2">
+                        {hasErrors ? (
+                            <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                        ) : (
+                            <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                        )}
                         <div>
-                            <span className="text-slate-400">First:</span>{' '}
-                            <span className="text-slate-600">{formatTime(logs.firstGenerated)}</span>
-                        </div>
-                        <div>
-                            <span className="text-slate-400">Last:</span>{' '}
-                            <span className="text-slate-600">{formatTime(logs.lastGenerated)}</span>
-                        </div>
-                        <div className="col-span-2">
-                            <span className="text-slate-400">Total Time:</span>{' '}
-                            <span className="text-slate-600 font-medium">{formatElapsed(logs.totalElapsed)}</span>
+                            <p className={`font-medium ${hasErrors ? 'text-amber-800' : 'text-emerald-800'}`}>
+                                {hasErrors ? 'Completed with issues' : 'Generation complete!'}
+                            </p>
+                            <p className={`text-sm ${hasErrors ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                {progress.generated} of {csvData.length} certificates generated
+                            </p>
                         </div>
                     </div>
                 </div>
 
-                {/* Success summary */}
-                {!hasErrors && (
-                    <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-                        <div className="flex items-center gap-2">
-                            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                            <span className="text-sm font-medium text-emerald-800">
-                                All {progress.generated} certificates generated successfully
-                            </span>
-                        </div>
+                {/* Logs */}
+                <div className="p-3 bg-slate-50 rounded-lg space-y-1 text-xs">
+                    <div className="flex items-center gap-2 text-slate-600">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>First: {formatTime(logs.firstGenerated)}</span>
                     </div>
-                )}
+                    <div className="flex items-center gap-2 text-slate-600">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>Last: {formatTime(logs.lastGenerated)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-slate-600">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>Total time: {formatDuration(logs.totalElapsed)}</span>
+                    </div>
+                </div>
 
-                {/* Failure section */}
+                {/* Errors section */}
                 {hasErrors && (
-                    <div className={`p-3 rounded-lg border ${allFailed ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
-                        <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                                <AlertCircle className={`w-5 h-5 ${allFailed ? 'text-red-600' : 'text-amber-600'}`} />
-                                <span className={`text-sm font-medium ${allFailed ? 'text-red-800' : 'text-amber-800'}`}>
-                                    {progress.errors.length} failed
-                                </span>
-                            </div>
-                            {progress.generated > 0 && (
-                                <span className="text-xs text-emerald-600">
-                                    {progress.generated} succeeded
-                                </span>
-                            )}
-                        </div>
-
-                        <div className="flex gap-2 mt-3">
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg space-y-2">
+                        <p className="text-sm font-medium text-red-800">
+                            {progress.errors.length} record{progress.errors.length > 1 ? 's' : ''} failed
+                        </p>
+                        <div className="flex gap-2">
                             <button
                                 onClick={handleRetry}
-                                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700 transition-colors"
+                                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 transition-colors"
                             >
-                                <RefreshCw className="w-4 h-4" />
+                                <RefreshCw className="w-3.5 h-3.5" />
                                 Retry Failed
                             </button>
                             <button
-                                onClick={handleDownloadFailures}
-                                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-300 transition-colors"
+                                onClick={handleDownloadErrorReport}
+                                className="flex items-center justify-center gap-1.5 px-3 py-1.5 border border-red-300 text-red-600 rounded-md text-sm font-medium hover:bg-red-100 transition-colors"
                             >
-                                <Download className="w-4 h-4" />
+                                <Download className="w-3.5 h-3.5" />
+                                Report
                             </button>
                         </div>
                     </div>
@@ -447,6 +452,7 @@ export function GenerateButton() {
                     onClick={handleDone}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 text-white rounded-lg font-medium hover:bg-slate-900 transition-colors"
                 >
+                    <CheckCircle2 className="w-4 h-4" />
                     Done
                 </button>
             </div>
