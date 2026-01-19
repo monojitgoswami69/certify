@@ -135,8 +135,6 @@ export function Canvas() {
             const displayFontSize = currentFontSize * displayScale;
             ctx.font = `${displayFontSize}px "JetBrains Mono", monospace`;
             ctx.fillStyle = box.fontColor;
-
-            ctx.measureText(previewText); // Measure for potential future use
             const textHeight = displayFontSize;
 
             // Get alignment from box (with defaults)

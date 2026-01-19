@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FileSpreadsheet, Eye, EyeOff, X, Image } from 'lucide-react';
+import { FileSpreadsheet, Eye, EyeOff, X, Image, Loader2 } from 'lucide-react';
 import { StepCard } from './components/StepCard';
 import { TemplateUpload } from './components/TemplateUpload';
 import { CsvUpload } from './components/CsvUpload';
@@ -53,6 +53,7 @@ export default function App() {
 
   const [showCsvPreview, setShowCsvPreview] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [initializing, setInitializing] = useState(true);
 
   // Check screen size
   useEffect(() => {
@@ -83,24 +84,41 @@ export default function App() {
     let mounted = true;
 
     const init = async () => {
-      const online = await checkApiHealth();
-      if (!mounted) return;
+      try {
+        const online = await checkApiHealth();
+        if (!mounted) return;
 
-      setApiStatus(online);
+        setApiStatus(online);
 
-      if (online) {
-        try {
+        if (online) {
           const fonts = await fetchFonts();
           if (mounted) setFonts(fonts);
-        } catch (err) {
-          console.error('Failed to load fonts:', err);
         }
+      } catch (err) {
+        // Log error but continue - app can still work partially
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Failed to initialize:', err);
+        }
+      } finally {
+        if (mounted) setInitializing(false);
       }
     };
 
     init();
     return () => { mounted = false; };
   }, [setApiStatus, setFonts]);
+
+  // Show loading state during initialization
+  if (initializing) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary-600 mx-auto mb-3" />
+          <p className="text-slate-600">Connecting to server...</p>
+        </div>
+      </div>
+    );
+  }
 
   // Show mobile overlay on small screens
   if (isMobile) {

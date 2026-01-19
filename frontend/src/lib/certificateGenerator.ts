@@ -79,8 +79,6 @@ function drawTextBox(
     const fontSize = findFittingFontSize(ctx, text, w, h, maxFontSize, fontFamily);
     ctx.font = `${fontSize}px "${fontFamily}"`;
     ctx.fillStyle = color;
-
-    ctx.measureText(text); // For font loading
     const textHeight = fontSize;
 
     // Horizontal alignment

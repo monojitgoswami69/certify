@@ -1,10 +1,3 @@
-export interface Selection {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-}
-
 export type HorizontalAlign = 'left' | 'center' | 'right';
 export type VerticalAlign = 'top' | 'middle' | 'bottom';
 

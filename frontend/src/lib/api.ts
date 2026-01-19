@@ -1,4 +1,4 @@
-import type { EmailConfig, TextBox, CsvRow } from '../types';
+import type { EmailConfig } from '../types';
 
 const API_BASE = '/api';
 
@@ -24,94 +24,8 @@ export async function fetchEmailConfig(): Promise<EmailConfig> {
     return response.json();
 }
 
-// Text box configuration for API calls
-export interface TextBoxConfig {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-    text: string;
-    fontSize: number;
-    fontColor: string;
-    fontFile: string;
-    hAlign: 'left' | 'center' | 'right';
-    vAlign: 'top' | 'middle' | 'bottom';
-}
-
-export interface GenerateSingleParams {
-    templateFile: File;
-    textBoxes: TextBoxConfig[];
-    includePdf: boolean;
-    includeJpg: boolean;
-    filename: string; // Base filename for the output
-}
-
-export interface GenerateSingleResult {
-    filename: string;
-    jpg?: string; // base64
-    pdf?: string; // base64
-}
-
-export async function generateSingleCertificate(params: GenerateSingleParams): Promise<GenerateSingleResult> {
-    const formData = new FormData();
-    formData.append('template', params.templateFile);
-    formData.append('text_boxes', JSON.stringify(params.textBoxes));
-    formData.append('include_pdf', params.includePdf.toString());
-    formData.append('include_jpg', params.includeJpg.toString());
-    formData.append('filename', params.filename);
-
-    const response = await fetch(`${API_BASE}/generate-single`, {
-        method: 'POST',
-        body: formData,
-    });
-
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Generation failed');
-    }
-
-    return response.json();
-}
-
-export interface SendEmailParams {
-    templateFile: File;
-    recipientEmail: string;
-    textBoxes: TextBoxConfig[];
-    emailSubject: string;
-    emailBodyPlain: string;
-    emailBodyHtml: string;
-    attachPdf: boolean;
-    attachJpg: boolean;
-    filename: string;
-}
-
-export async function sendCertificateEmail(params: SendEmailParams): Promise<{ status: string; message: string; recipient: string }> {
-    const formData = new FormData();
-    formData.append('template', params.templateFile);
-    formData.append('recipient_email', params.recipientEmail);
-    formData.append('text_boxes', JSON.stringify(params.textBoxes));
-    formData.append('email_subject', params.emailSubject);
-    formData.append('email_body_plain', params.emailBodyPlain);
-    formData.append('email_body_html', params.emailBodyHtml);
-    formData.append('attach_pdf', params.attachPdf.toString());
-    formData.append('attach_jpg', params.attachJpg.toString());
-    formData.append('filename', params.filename);
-
-    const response = await fetch(`${API_BASE}/send-email`, {
-        method: 'POST',
-        body: formData,
-    });
-
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to send email');
-    }
-
-    return response.json();
-}
-
 /**
- * Send email with pre-generated certificate (new simplified API)
+ * Send email with pre-generated certificate
  * Certificates are generated client-side and sent as base64
  */
 export interface SendEmailV2Params {
@@ -226,24 +140,6 @@ export function calculateEstimatedTime(recordCount: number, delayMs: number): st
         const mins = totalMinutes % 60;
         return `~${hours} hour${hours > 1 ? 's' : ''}${mins > 0 ? ` ${mins} min` : ''}`;
     }
-}
-
-/**
- * Convert TextBox array and CSV row to TextBoxConfig array for API
- */
-export function buildTextBoxConfigs(boxes: TextBox[], row: CsvRow): TextBoxConfig[] {
-    return boxes.map(box => ({
-        x: Math.round(box.x),
-        y: Math.round(box.y),
-        w: Math.round(box.w),
-        h: Math.round(box.h),
-        text: row[box.field] || '',
-        fontSize: box.fontSize,
-        fontColor: box.fontColor,
-        fontFile: box.fontFile,
-        hAlign: box.hAlign || 'center',
-        vAlign: box.vAlign || 'bottom',
-    }));
 }
 
 /**

@@ -27,7 +27,7 @@ const defaultEmailProgress: EmailProgress = {
 };
 
 // Generate unique ID for boxes
-const generateBoxId = () => `box_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+const generateBoxId = () => `box_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
 interface AppStore {
     // Template

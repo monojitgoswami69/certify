@@ -239,7 +239,22 @@ async def list_fonts():
 @app.get("/fonts/{font_filename}")
 async def get_font_file(font_filename: str):
     """Serve a font file for client-side rendering."""
+    # Security: Validate filename to prevent path traversal
+    if not font_filename or '..' in font_filename or '/' in font_filename or '\\' in font_filename:
+        raise HTTPException(status_code=400, detail="Invalid font filename")
+    
+    # Only allow safe characters in filename
+    safe_pattern = re.compile(r'^[a-zA-Z0-9_\-\.]+\.(ttf|otf)$', re.IGNORECASE)
+    if not safe_pattern.match(font_filename):
+        raise HTTPException(status_code=400, detail="Invalid font filename format")
+    
     font_path = FONTS_DIR / font_filename
+    
+    # Security: Ensure resolved path is still within FONTS_DIR
+    try:
+        font_path.resolve().relative_to(FONTS_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid font path")
     
     if not font_path.exists():
         raise HTTPException(status_code=404, detail=f"Font not found: {font_filename}")

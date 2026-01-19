@@ -1,3 +1,5 @@
+'use strict';
+
 /**
  * Certificate Tracker Application
  * Runtime certificate generation using HTML5 Canvas
@@ -352,6 +354,15 @@ function renderCertificates(names, query = '') {
     }
 }
 
+/**
+ * Escape HTML special characters to prevent XSS
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 function createCertificateCard(name, query, index) {
     const card = document.createElement('div');
     card.className = 'certificate-card';
@@ -363,14 +374,18 @@ function createCertificateCard(name, query, index) {
         .join('')
         .slice(0, 2);
 
-    const displayName = query ? highlightText(name, query) : name;
+    // Sanitize user data to prevent XSS
+    const safeInitials = escapeHtml(initials);
+    const safeName = escapeHtml(name);
+    const safeFilename = escapeHtml(name.replace(/ /g, '_'));
+    const displayName = query ? highlightText(safeName, query) : safeName;
 
     card.innerHTML = `
         <div class="card-header">
-            <div class="card-avatar">${initials}</div>
+            <div class="card-avatar">${safeInitials}</div>
             <div class="card-info">
                 <div class="card-name">${displayName}</div>
-                <div class="card-filename">${name.replace(/ /g, '_')}</div>
+                <div class="card-filename">${safeFilename}</div>
             </div>
         </div>
         <div class="card-actions">
