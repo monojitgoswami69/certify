@@ -20,7 +20,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from PIL import Image, ImageDraw, ImageFont
@@ -150,12 +150,14 @@ def draw_text_box(
     x: int, y: int, w: int, h: int,
     max_font_size: int,
     color: str,
-    font_filename: str
+    font_filename: str,
+    h_align: str = "center",
+    v_align: str = "bottom"
 ) -> None:
     """
     Draw text in a box on the image.
-    - Horizontally centered
-    - Vertically aligned to bottom of box
+    - h_align: 'left', 'center', or 'right'
+    - v_align: 'top', 'middle', or 'bottom'
     - Font size auto-reduced if text doesn't fit
     """
     if not text.strip():
@@ -169,11 +171,21 @@ def draw_text_box(
     text_w = bbox[2] - bbox[0]
     text_h = bbox[3] - bbox[1]
     
-    # Horizontal: center in box
-    text_x = x + (w - text_w) // 2
+    # Horizontal alignment
+    if h_align == "left":
+        text_x = x + 5  # 5px padding from left
+    elif h_align == "right":
+        text_x = x + w - text_w - 5  # 5px padding from right
+    else:  # center (default)
+        text_x = x + (w - text_w) // 2
     
-    # Vertical: align to bottom of box (stick to lower Y)
-    text_y = y + h - text_h - 5  # 5px padding from bottom
+    # Vertical alignment
+    if v_align == "top":
+        text_y = y + 5  # 5px padding from top
+    elif v_align == "middle":
+        text_y = y + (h - text_h) // 2
+    else:  # bottom (default)
+        text_y = y + h - text_h - 5  # 5px padding from bottom
     
     # Account for the bbox offset (some fonts have non-zero origin)
     text_x -= bbox[0]
@@ -188,7 +200,7 @@ def draw_certificate_multi(
 ) -> Image.Image:
     """
     Draw multiple text boxes on the template.
-    Each text_box should have: x, y, w, h, text, fontSize, fontColor, fontFile
+    Each text_box should have: x, y, w, h, text, fontSize, fontColor, fontFile, hAlign, vAlign
     """
     img = template.copy()
     draw = ImageDraw.Draw(img)
@@ -203,7 +215,9 @@ def draw_certificate_multi(
             h=int(box.get("h", 50)),
             max_font_size=int(box.get("fontSize", 60)),
             color=box.get("fontColor", "#000000"),
-            font_filename=box.get("fontFile", "")
+            font_filename=box.get("fontFile", ""),
+            h_align=box.get("hAlign", "center"),
+            v_align=box.get("vAlign", "bottom")
         )
     
     return img
@@ -220,6 +234,25 @@ async def list_fonts():
     """Get list of available fonts."""
     fonts = get_available_fonts()
     return JSONResponse(content={"fonts": fonts})
+
+
+@app.get("/fonts/{font_filename}")
+async def get_font_file(font_filename: str):
+    """Serve a font file for client-side rendering."""
+    font_path = FONTS_DIR / font_filename
+    
+    if not font_path.exists():
+        raise HTTPException(status_code=404, detail=f"Font not found: {font_filename}")
+    
+    # Determine content type
+    suffix = font_path.suffix.lower()
+    media_type = "font/ttf" if suffix == ".ttf" else "font/otf" if suffix == ".otf" else "application/octet-stream"
+    
+    return FileResponse(
+        font_path,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400"}  # Cache for 1 day
+    )
 
 
 @app.post("/generate-single")
@@ -440,3 +473,95 @@ async def send_certificate_email(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8001)
+
+
+# New simplified email endpoint - receives pre-generated certificates
+class SendEmailV2Request(BaseModel):
+    recipient_email: str
+    email_subject: str
+    email_body_plain: str
+    email_body_html: str = ""
+    filename: str = "certificate"
+    jpg_base64: Optional[str] = None  # Pre-generated JPG as base64
+    pdf_base64: Optional[str] = None  # Pre-generated PDF as base64
+
+
+@app.post("/send-email-v2")
+async def send_email_v2(request: SendEmailV2Request):
+    """
+    Send an email with pre-generated certificate attachments.
+    Certificates are generated client-side and sent as base64 encoded strings.
+    This eliminates the need for PIL/image processing on the server.
+    """
+    
+    if not request.jpg_base64 and not request.pdf_base64:
+        raise HTTPException(status_code=400, detail="At least one attachment (jpg_base64 or pdf_base64) must be provided")
+    
+    # Get SMTP config from environment
+    smtp = get_smtp_config()
+    safe_name = sanitize_filename(request.filename)
+    
+    # Create email
+    message = MIMEMultipart("alternative")
+    message["Subject"] = request.email_subject
+    message["From"] = smtp["user"]
+    message["To"] = request.recipient_email
+    
+    # Attach text parts
+    message.attach(MIMEText(request.email_body_plain, "plain"))
+    
+    # Only attach HTML if provided
+    if request.email_body_html.strip():
+        message.attach(MIMEText(request.email_body_html, "html"))
+    
+    # Attach JPG if provided
+    if request.jpg_base64:
+        try:
+            jpg_data = base64.b64decode(request.jpg_base64)
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(jpg_data)
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f"attachment; filename={safe_name}.jpg")
+            message.attach(part)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid jpg_base64: {str(e)}")
+    
+    # Attach PDF if provided
+    if request.pdf_base64:
+        try:
+            pdf_data = base64.b64decode(request.pdf_base64)
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(pdf_data)
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f"attachment; filename={safe_name}.pdf")
+            message.attach(part)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid pdf_base64: {str(e)}")
+    
+    # Send email
+    try:
+        context = ssl.create_default_context()
+        
+        if smtp["use_tls"]:
+            with smtplib.SMTP_SSL(smtp["host"], smtp["port"], context=context) as server:
+                server.login(smtp["user"], smtp["pass"])
+                server.sendmail(smtp["user"], request.recipient_email, message.as_string())
+        else:
+            with smtplib.SMTP(smtp["host"], smtp["port"]) as server:
+                server.starttls(context=context)
+                server.login(smtp["user"], smtp["pass"])
+                server.sendmail(smtp["user"], request.recipient_email, message.as_string())
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": f"Email sent to {request.recipient_email}",
+            "recipient": request.recipient_email
+        })
+        
+    except smtplib.SMTPAuthenticationError:
+        raise HTTPException(status_code=401, detail="SMTP authentication failed. Check server credentials.")
+    except smtplib.SMTPException as e:
+        raise HTTPException(status_code=500, detail=f"SMTP error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
+

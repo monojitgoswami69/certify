@@ -466,6 +466,73 @@ body {
     transform: translateY(-2px);
 }
 
+.action-btn.view-cert {
+    background: var(--gradient-primary);
+    color: white;
+    border: none;
+}
+
+.action-btn.view-cert:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-glow);
+}
+
+/* ==========================================
+   Modal Actions (Download Buttons)
+   ========================================== */
+.modal-actions {
+    display: flex;
+    gap: var(--spacing-md);
+    padding: var(--spacing-lg) var(--spacing-xl);
+    border-top: 1px solid var(--color-border);
+    justify-content: center;
+}
+
+.download-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-lg);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    font-family: var(--font-family);
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--color-accent-primary);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.download-btn:hover {
+    background: rgba(99, 102, 241, 0.25);
+    transform: translateY(-2px);
+}
+
+.download-btn.download-pdf {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--color-accent-success);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.download-btn.download-pdf:hover {
+    background: rgba(16, 185, 129, 0.25);
+}
+
+.download-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Certificate Preview Canvas */
+.certificate-preview {
+    max-width: 100%;
+    max-height: 60vh;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+}
+
 /* ==========================================
    No Results
    ========================================== */

@@ -34,6 +34,8 @@ export interface TextBoxConfig {
     fontSize: number;
     fontColor: string;
     fontFile: string;
+    hAlign: 'left' | 'center' | 'right';
+    vAlign: 'top' | 'middle' | 'bottom';
 }
 
 export interface GenerateSingleParams {
@@ -98,6 +100,45 @@ export async function sendCertificateEmail(params: SendEmailParams): Promise<{ s
     const response = await fetch(`${API_BASE}/send-email`, {
         method: 'POST',
         body: formData,
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to send email');
+    }
+
+    return response.json();
+}
+
+/**
+ * Send email with pre-generated certificate (new simplified API)
+ * Certificates are generated client-side and sent as base64
+ */
+export interface SendEmailV2Params {
+    recipientEmail: string;
+    emailSubject: string;
+    emailBodyPlain: string;
+    emailBodyHtml: string;
+    filename: string;
+    jpgBase64?: string;  // Pre-generated JPG as base64
+    pdfBase64?: string;  // Pre-generated PDF as base64
+}
+
+export async function sendEmailV2(params: SendEmailV2Params): Promise<{ status: string; message: string; recipient: string }> {
+    const response = await fetch(`${API_BASE}/send-email-v2`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            recipient_email: params.recipientEmail,
+            email_subject: params.emailSubject,
+            email_body_plain: params.emailBodyPlain,
+            email_body_html: params.emailBodyHtml,
+            filename: params.filename,
+            jpg_base64: params.jpgBase64,
+            pdf_base64: params.pdfBase64,
+        }),
     });
 
     if (!response.ok) {
@@ -200,6 +241,8 @@ export function buildTextBoxConfigs(boxes: TextBox[], row: CsvRow): TextBoxConfi
         fontSize: box.fontSize,
         fontColor: box.fontColor,
         fontFile: box.fontFile,
+        hAlign: box.hAlign || 'center',
+        vAlign: box.vAlign || 'bottom',
     }));
 }
 
