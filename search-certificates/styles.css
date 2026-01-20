@@ -214,6 +214,105 @@ body {
 }
 
 /* ==========================================
+   Event Selector Section
+   ========================================== */
+.event-selector-section {
+    max-width: 600px;
+    margin: 0 auto var(--spacing-xl);
+    animation: fadeIn 0.6s ease 0.15s both;
+}
+
+.event-selector-container {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.event-label {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+}
+
+.event-label svg {
+    width: 18px;
+    height: 18px;
+    color: var(--color-accent-primary);
+}
+
+.event-dropdown-wrapper {
+    position: relative;
+    flex: 1;
+    min-width: 200px;
+    max-width: 400px;
+}
+
+.event-dropdown {
+    width: 100%;
+    padding: var(--spacing-sm) var(--spacing-xl);
+    padding-right: 48px;
+    font-size: var(--font-size-base);
+    font-family: var(--font-family);
+    font-weight: 500;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    color: var(--color-text-primary);
+    outline: none;
+    cursor: pointer;
+    transition: all var(--transition-base);
+    backdrop-filter: blur(20px);
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+}
+
+.event-dropdown:hover {
+    border-color: var(--color-border-hover);
+    background: var(--color-bg-card-hover);
+}
+
+.event-dropdown:focus {
+    border-color: var(--color-accent-primary);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.event-dropdown option {
+    background: var(--color-bg-secondary);
+    color: var(--color-text-primary);
+    padding: var(--spacing-sm);
+}
+
+.dropdown-arrow {
+    position: absolute;
+    right: var(--spacing-md);
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    color: var(--color-text-tertiary);
+    pointer-events: none;
+    transition: color var(--transition-fast);
+}
+
+.event-dropdown:focus+.dropdown-arrow {
+    color: var(--color-accent-primary);
+}
+
+.event-info {
+    text-align: center;
+    margin-top: var(--spacing-sm);
+    color: var(--color-text-tertiary);
+    font-size: var(--font-size-sm);
+    font-style: italic;
+}
+
+/* ==========================================
    Search Section
    ========================================== */
 .search-section {

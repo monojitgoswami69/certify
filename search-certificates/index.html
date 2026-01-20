@@ -4,8 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Certificate Tracker - Search and generate certificates instantly">
-    <title>Certificate Tracker | Live Generation</title>
+    <meta name="description"
+        content="Certificate Tracker - Search and generate certificates instantly for multiple events">
+    <title>Certificate Tracker | Event Certificates</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
@@ -37,6 +38,33 @@
             </div>
             <p class="subtitle">Search and generate certificates instantly</p>
         </header>
+
+        <!-- Event Selector Section -->
+        <div class="event-selector-section">
+            <div class="event-selector-container">
+                <label for="eventSelector" class="event-label">
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" stroke="currentColor" stroke-width="2" />
+                        <line x1="16" y1="2" x2="16" y2="6" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" />
+                        <line x1="8" y1="2" x2="8" y2="6" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" />
+                        <line x1="3" y1="10" x2="21" y2="10" stroke="currentColor" stroke-width="2" />
+                    </svg>
+                    Select Event
+                </label>
+                <div class="event-dropdown-wrapper">
+                    <select id="eventSelector" class="event-dropdown">
+                        <option value="">Loading events...</option>
+                    </select>
+                    <svg class="dropdown-arrow" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                    </svg>
+                </div>
+            </div>
+            <p class="event-info" id="eventInfo" style="display: none;"></p>
+        </div>
 
         <!-- Search Section -->
         <div class="search-section">
@@ -131,7 +159,8 @@
 
     <!-- Include jsPDF for PDF generation -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="app.js"></script>
+    <!-- Main application (ES Module) -->
+    <script type="module" src="app.js"></script>
 </body>
 
 </html>

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { Download, Mail, Loader2, Pause, Play, X, CheckCircle2, AlertCircle, RefreshCw, Clock } from 'lucide-react';
+import { Download, Mail, Loader2, Pause, Play, X, CheckCircle2, AlertCircle, RefreshCw, Clock, FileJson } from 'lucide-react';
 import JSZip from 'jszip';
 import { useAppStore } from '../store/appStore';
 import { downloadBlob, fetchEmailConfig, delay, downloadErrorReport, sanitizeFilename } from '../lib/api';
@@ -280,6 +280,97 @@ export function GenerateButton() {
         })), 'generation');
     };
 
+    const handleExportEventConfig = async () => {
+        const eventName = window.prompt('Enter event name (e.g., "Hackathon 2024"):');
+        if (!eventName || !eventName.trim()) return;
+
+        const safeName = eventName.trim()
+            .toLowerCase()
+            .replace(/\s+/g, '_')
+            .replace(/[^a-z0-9_-]/g, '');
+
+        if (!templateImage) {
+            setError('No template image loaded');
+            return;
+        }
+
+        // Create config object for the certificate viewer
+        // Simple format: only eventName and participant names needed
+        const config = {
+            eventName: eventName.trim(),
+            font: {
+                family: 'JetBrains Mono',
+                file: boxes[0]?.fontFile || 'JetBrainsMonoNerdFontPropo-Medium.ttf',
+                maxSize: boxes[0]?.fontSize || 60,
+                color: boxes[0]?.fontColor || '#000000'
+            },
+            textBox: boxes.length > 0 ? {
+                x: Math.round(boxes[0].x),
+                y: Math.round(boxes[0].y),
+                w: Math.round(boxes[0].w),
+                h: Math.round(boxes[0].h)
+            } : { x: 0, y: 0, w: 100, h: 50 },
+            names: csvData.map(row => {
+                // Find the name field from boxes
+                const nameBox = boxes.find(b => b.field.toLowerCase().includes('name'));
+                if (nameBox && row[nameBox.field]) {
+                    return row[nameBox.field];
+                }
+                // Fallback to first box field
+                if (boxes.length > 0 && row[boxes[0].field]) {
+                    return row[boxes[0].field];
+                }
+                return '';
+            }).filter(name => name.trim() !== '')
+        };
+
+        // Create ZIP with folder structure: {eventname}/config.json + template.jpg
+        try {
+            const zip = new JSZip();
+            const folder = zip.folder(safeName);
+
+            if (!folder) {
+                setError('Failed to create folder in ZIP');
+                return;
+            }
+
+            // Add config.json (always named config.json inside the folder)
+            folder.file('config.json', JSON.stringify(config, null, 2));
+
+            // Convert template image to blob and add as template.jpg
+            const canvas = document.createElement('canvas');
+            canvas.width = templateImage.width;
+            canvas.height = templateImage.height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                ctx.drawImage(templateImage, 0, 0);
+                const templateBlob = await new Promise<Blob>((resolve) => {
+                    canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.92);
+                });
+                // Always named template.jpg inside the folder
+                folder.file('template.jpg', templateBlob);
+            }
+
+            // Create events.json entry for easy reference
+            const eventsEntry = {
+                id: safeName,
+                name: eventName.trim(),
+                description: `Certificates for ${eventName.trim()}`
+            };
+            folder.file('_add_to_events.json.txt',
+                `Add this entry to events/events.json:\n\n${JSON.stringify(eventsEntry, null, 2)}`
+            );
+
+            // Generate and download ZIP
+            const zipBlob = await zip.generateAsync({ type: 'blob' });
+            downloadBlob(zipBlob, `${safeName}_event.zip`);
+
+        } catch (err) {
+            setError('Failed to create event config package');
+            console.error('Export error:', err);
+        }
+    };
+
     const formatDuration = (ms: number): string => {
         const seconds = Math.floor(ms / 1000);
         if (seconds < 60) return `${seconds}s`;
@@ -320,6 +411,20 @@ export function GenerateButton() {
                     <Mail className="w-5 h-5" />
                     <span>Send via Email</span>
                 </button>
+
+                <div className="pt-2 border-t border-slate-200">
+                    <button
+                        onClick={handleExportEventConfig}
+                        disabled={!templateImage || csvData.length === 0}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-slate-300 text-slate-600 rounded-lg font-medium hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-slate-300 disabled:hover:text-slate-600 disabled:hover:bg-transparent transition-all"
+                    >
+                        <FileJson className="w-5 h-5" />
+                        <span>Export Event Config</span>
+                    </button>
+                    <p className="text-xs text-slate-500 mt-1.5 text-center">
+                        Export for use in certificate viewer
+                    </p>
+                </div>
             </div>
         );
     }
