@@ -1,37 +1,44 @@
 /**
  * Client-side certificate generation using HTML5 Canvas
- * Replaces backend PIL-based generation
+ * 
+ * This module handles all certificate rendering in the browser.
+ * Uses Google Fonts for unlimited font options.
  */
 
 import { jsPDF } from 'jspdf';
 import type { TextBox, CsvRow, HorizontalAlign, VerticalAlign } from '../types';
+import { loadGoogleFont, isFontLoaded, getGoogleFont, getFontFamilyCSS } from './googleFonts';
 
-// Font cache to avoid reloading
-const fontCache = new Map<string, FontFace>();
+// =============================================================================
+// Font Management
+// =============================================================================
 
 /**
- * Load a font from the backend fonts directory
+ * Load a Google Font by family name
  */
-export async function loadFont(fontFilename: string): Promise<FontFace | null> {
-    if (fontCache.has(fontFilename)) {
-        return fontCache.get(fontFilename)!;
+export async function loadFont(fontFamily: string): Promise<boolean> {
+    if (isFontLoaded(fontFamily)) {
+        return true;
     }
 
-    try {
-        const fontUrl = `/api/fonts/${fontFilename}`;
-        const fontFace = new FontFace(fontFilename, `url(${fontUrl})`);
-        await fontFace.load();
-        document.fonts.add(fontFace);
-        fontCache.set(fontFilename, fontFace);
-        return fontFace;
-    } catch (error) {
-        console.error(`Failed to load font ${fontFilename}:`, error);
-        return null;
-    }
+    const result = loadGoogleFont(fontFamily);
+    return result.success;
 }
 
 /**
- * Find the largest font size that fits text within the box
+ * Get CSS-safe font family string with appropriate fallbacks
+ */
+export function getFontFamily(family: string): string {
+    const font = getGoogleFont(family);
+    return getFontFamilyCSS(family, font?.category);
+}
+
+// =============================================================================
+// Text Rendering
+// =============================================================================
+
+/**
+ * Find the largest font size that fits text within the given box
  */
 function findFittingFontSize(
     ctx: CanvasRenderingContext2D,
@@ -61,12 +68,15 @@ function findFittingFontSize(
 }
 
 /**
- * Draw text in a box with alignment
+ * Draw text in a box with specified alignment
  */
 function drawTextBox(
     ctx: CanvasRenderingContext2D,
     text: string,
-    x: number, y: number, w: number, h: number,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
     maxFontSize: number,
     color: string,
     fontFamily: string,
@@ -108,14 +118,22 @@ function drawTextBox(
     ctx.fillText(text, textX, textY);
 }
 
+// =============================================================================
+// Certificate Generation
+// =============================================================================
+
+/**
+ * Result of certificate generation
+ */
 export interface GeneratedCertificate {
     filename: string;
     jpgBlob?: Blob;
     pdfBlob?: Blob;
-    jpgBase64?: string;
-    pdfBase64?: string;
 }
 
+/**
+ * Parameters for generating a certificate
+ */
 export interface GenerateCertificateParams {
     templateImage: HTMLImageElement;
     boxes: TextBox[];
@@ -123,7 +141,6 @@ export interface GenerateCertificateParams {
     filename: string;
     includeJpg: boolean;
     includePdf: boolean;
-    includeBase64?: boolean; // For email
 }
 
 /**
@@ -132,7 +149,14 @@ export interface GenerateCertificateParams {
 export async function generateCertificate(
     params: GenerateCertificateParams
 ): Promise<GeneratedCertificate> {
-    const { templateImage, boxes, row, filename, includeJpg, includePdf, includeBase64 } = params;
+    const {
+        templateImage,
+        boxes,
+        row,
+        filename,
+        includeJpg,
+        includePdf,
+    } = params;
 
     // Create canvas at original image size
     const canvas = document.createElement('canvas');
@@ -148,16 +172,19 @@ export async function generateCertificate(
         if (!box.field) continue;
 
         // Load font if needed
-        await loadFont(box.fontFile);
+        await loadFont(box.fontFamily);
 
         const text = row[box.field] || '';
         drawTextBox(
             ctx,
             text,
-            box.x, box.y, box.w, box.h,
+            box.x,
+            box.y,
+            box.w,
+            box.h,
             box.fontSize,
             box.fontColor,
-            box.fontFile,
+            box.fontFamily,
             box.hAlign || 'center',
             box.vAlign || 'bottom'
         );
@@ -171,10 +198,6 @@ export async function generateCertificate(
             canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.95);
         });
         result.jpgBlob = jpgBlob;
-
-        if (includeBase64) {
-            result.jpgBase64 = await blobToBase64(jpgBlob);
-        }
     }
 
     // Generate PDF
@@ -192,28 +215,9 @@ export async function generateCertificate(
         pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
         const pdfBlob = pdf.output('blob');
         result.pdfBlob = pdfBlob;
-
-        if (includeBase64) {
-            result.pdfBase64 = await blobToBase64(pdfBlob);
-        }
     }
 
     return result;
-}
-
-/**
- * Convert blob to base64 string
- */
-function blobToBase64(blob: Blob): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            const base64 = (reader.result as string).split(',')[1];
-            resolve(base64);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-    });
 }
 
 /**

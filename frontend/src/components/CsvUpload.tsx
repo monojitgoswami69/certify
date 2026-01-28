@@ -1,7 +1,14 @@
+/**
+ * CSV Upload Component
+ * 
+ * Drag-and-drop or click-to-browse file upload for CSV data files.
+ * Parses the CSV and stores headers and rows in the app state.
+ */
+
 import { useCallback } from 'react';
 import { FileText } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
-import { parseCsv } from '../lib/api';
+import { parseCsv } from '../lib/utils';
 
 export function CsvUpload() {
     const { setCsvData, setError } = useAppStore();

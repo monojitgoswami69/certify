@@ -1,73 +1,236 @@
-# React + TypeScript + Vite
+# Certify Demo
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A **fully client-side** certificate generation tool built with React and TypeScript. Generate personalized certificates in bulk directly in your browser — no backend required.
 
-Currently, two official plugins are available:
+## ✨ Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **100% Browser-Based** — No server required, all processing happens locally
+- **Batch Generation** — Generate hundreds of certificates from a CSV file
+- **Google Fonts** — Access to 1,200+ fonts via Google Fonts CDN
+- **Interactive Canvas** — Drag & drop text box positioning
+- **ZIP Download** — Certificates bundled as JPG + PDF in a ZIP file
+- **Pause & Resume** — Control batch generation with pause/resume/cancel
+- **Retry Failed** — Automatically retry failed generations
+- **Live Preview** — See font styling and positioning in real-time
 
-## React Compiler
+## 🚀 Getting Started
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Prerequisites
 
-## Expanding the ESLint configuration
+- Node.js 18+ (recommended: 20+)
+- npm or yarn
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### Installation
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+```bash
+# Clone the repository
+git clone <repo-url>
+cd certify-demo/frontend
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+# Install dependencies
+npm install
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# Start development server
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The app will be available at `http://localhost:5173`
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### Build for Production
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build
+npm run preview  # Preview production build
 ```
+
+## 📖 How to Use
+
+### Step 1: Upload Template
+Upload a certificate template image (JPG, PNG, or WebP). This is your base design with placeholders for dynamic text.
+
+### Step 2: Import Data
+Upload a CSV file with recipient information. The first row should contain column headers (e.g., `Name`, `Email`, `Course`, `Date`).
+
+**Example CSV:**
+```csv
+Name,Course,Date,Certificate ID
+John Doe,Web Development,2025-01-15,CERT-001
+Jane Smith,Data Science,2025-01-15,CERT-002
+```
+
+### Step 3: Define Text Boxes
+Click and drag on the canvas to create text boxes. Each box represents a field from your CSV that will be placed on the certificate.
+
+### Step 4: Customize Styling
+For each text box, configure:
+- **Field** — Select which CSV column to use
+- **Font** — Choose from 1,200+ Google Fonts
+- **Size** — Font size in pixels
+- **Color** — Text color (hex or picker)
+- **Alignment** — Horizontal (left/center/right) and vertical (top/middle/bottom)
+- **Auto-fit** — Automatically shrink text to fit within box bounds
+
+### Step 5: Generate & Download
+Click "Generate Certificates" to process all rows. Certificates are:
+- Generated as both JPG and PDF
+- Bundled into a ZIP file
+- Automatically downloaded when complete
+
+## 🏗️ Project Structure
+
+```
+frontend/
+├── public/
+│   └── google-fonts.json      # Font metadata (1,200+ fonts)
+├── src/
+│   ├── components/
+│   │   ├── BoxCustomizer.tsx  # Text box property editor
+│   │   ├── Canvas.tsx         # Interactive canvas for positioning
+│   │   ├── CsvUpload.tsx      # CSV file upload & parsing
+│   │   ├── FontSelector.tsx   # Virtualized font dropdown
+│   │   ├── GenerateButton.tsx # Batch generation with progress
+│   │   ├── TemplateUpload.tsx # Template image upload
+│   │   ├── StepCard.tsx       # Step indicator UI
+│   │   └── ...
+│   ├── lib/
+│   │   ├── certificateGenerator.ts  # Core generation logic
+│   │   ├── googleFonts.ts           # Font loading & search
+│   │   └── utils.ts                 # Helper functions
+│   ├── store/
+│   │   └── appStore.ts        # Zustand state management
+│   ├── types/
+│   │   └── index.ts           # TypeScript definitions
+│   ├── App.tsx                # Main application
+│   └── main.tsx               # Entry point
+├── package.json
+├── tsconfig.json
+└── vite.config.ts
+```
+
+## 🔧 Technology Stack
+
+| Technology | Purpose |
+|------------|---------|
+| **React 19** | UI framework |
+| **TypeScript** | Type safety |
+| **Vite** | Build tool & dev server |
+| **Zustand** | Lightweight state management |
+| **Tailwind CSS 4** | Utility-first styling |
+| **jsPDF** | Client-side PDF generation |
+| **JSZip** | ZIP file creation |
+| **Lucide React** | Icon library |
+| **HTML5 Canvas** | Certificate rendering |
+
+## 🎨 Font System
+
+The app uses Google Fonts CDN for instant font loading:
+
+1. **Pre-loaded Metadata** — `google-fonts.json` contains metadata for 1,200+ fonts
+2. **On-Demand Loading** — Fonts are loaded only when selected
+3. **Curated Defaults** — Popular fonts are prioritized in the dropdown
+4. **Search & Filter** — Quickly find fonts by name
+5. **Live Preview** — See fonts applied to canvas in real-time
+
+### Adding Custom Fonts
+
+To add custom fonts, you can:
+
+1. Place font files in `public/fonts/`
+2. Reference them in a CSS `@font-face` rule
+3. The system will recognize locally available fonts
+
+## 📋 CSV Requirements
+
+- **Format**: Standard CSV with comma separation
+- **Headers**: First row must contain column names
+- **Encoding**: UTF-8 recommended
+- **Fields**: Any number of columns; map them to text boxes
+
+### Example Templates
+
+**Event Certificate:**
+```csv
+Name,Event,Date,Location
+John Doe,Tech Conference 2025,January 15,San Francisco
+```
+
+**Course Completion:**
+```csv
+Name,Course,Hours,Instructor,Certificate ID
+Jane Smith,Python Basics,40,Dr. Johnson,CERT-2025-001
+```
+
+## ⚙️ Configuration
+
+### Environment Variables
+
+No environment variables are required — the app runs entirely in the browser.
+
+### Customization
+
+Edit `tailwind.config.js` to customize the theme:
+
+```javascript
+theme: {
+  extend: {
+    colors: {
+      primary: {
+        // Your custom primary color palette
+      }
+    }
+  }
+}
+```
+
+## 🚢 Deployment
+
+### Vercel (Recommended)
+
+```bash
+npm install -g vercel
+vercel
+```
+
+A `vercel.json` is included for optimal configuration.
+
+### Static Hosting
+
+Build and deploy the `dist/` folder to any static hosting:
+- Netlify
+- GitHub Pages
+- Cloudflare Pages
+- AWS S3 + CloudFront
+
+## 🐛 Troubleshooting
+
+### Fonts not loading
+- Check your internet connection (fonts load from Google CDN)
+- Ensure the font exists in `google-fonts.json`
+- Try a different browser
+
+### Large CSV files slow to process
+- Consider splitting into smaller batches
+- Use the pause/resume feature to manage memory
+- Close other browser tabs to free resources
+
+### PDF generation issues
+- Ensure the template image is not corrupted
+- Try a smaller image size (under 5MB recommended)
+- Check browser console for specific errors
+
+## 📝 License
+
+MIT License — feel free to use for personal or commercial projects.
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
+---
+
+Built with ❤️ using React, TypeScript, and modern web APIs.

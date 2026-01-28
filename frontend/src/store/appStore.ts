@@ -1,64 +1,51 @@
+/**
+ * Zustand store for application state
+ * Simplified version for download-only certificate generation
+ */
+
 import { create } from 'zustand';
-import type { Font, CsvRow, ViewMode, EmailSettings, EmailProgress, EmailConfig, TextBox } from '../types';
+import type { Font, CsvRow, TextBox } from '../types';
 
-const defaultEmailSettings: EmailSettings = {
-    subject: 'Your Certificate is Ready! 🎉',
-    bodyPlain: `Hi {{name}},
+// =============================================================================
+// Utilities
+// =============================================================================
 
-Congratulations on your achievement!
+/**
+ * Generate a unique ID for text boxes
+ */
+const generateBoxId = (): string =>
+    `box_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
-Please find your certificate attached to this email.
-
-Best regards,
-The Team`,
-    bodyHtml: '',
-    attachPdf: true,
-    attachJpg: true,
-    delayMs: 2000,
-};
-
-const defaultEmailProgress: EmailProgress = {
-    current: 0,
-    total: 0,
-    currentRecipient: '',
-    status: 'idle',
-    errors: [],
-    sent: [],
-};
-
-// Generate unique ID for boxes
-const generateBoxId = () => `box_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+// =============================================================================
+// Store Interface
+// =============================================================================
 
 interface AppStore {
-    // Template
+    // Template State
     templateFile: File | null;
     templateImage: HTMLImageElement | null;
     templateInfo: string;
     setTemplate: (file: File, image: HTMLImageElement, info: string) => void;
     clearTemplate: () => void;
 
-    // Text Boxes (replaces single selection)
+    // Text Boxes State
     boxes: TextBox[];
     activeBoxId: string | null;
     displayScale: number;
-    addBox: (box: Omit<TextBox, 'id' | 'field' | 'fontSize' | 'fontColor' | 'fontFile' | 'hAlign' | 'vAlign'>) => void;
+    addBox: (box: Omit<TextBox, 'id' | 'field' | 'fontSize' | 'fontColor' | 'fontFamily' | 'hAlign' | 'vAlign'>) => void;
     updateBox: (id: string, updates: Partial<TextBox>) => void;
     deleteBox: (id: string) => void;
     setActiveBox: (id: string | null) => void;
     setDisplayScale: (scale: number) => void;
 
-    // CSV
+    // CSV Data State
     csvFile: File | null;
     csvHeaders: string[];
     csvData: CsvRow[];
     setCsvData: (file: File, headers: string[], data: CsvRow[]) => void;
     clearCsvData: () => void;
 
-    // Email Column (for email mode)
-    emailColumn: string;
-    setEmailColumn: (column: string) => void;
-
-    // Default font settings (used when creating new boxes)
+    // Default Font Settings (for new boxes)
     defaultFont: string;
     defaultFontSize: number;
     defaultFontColor: string;
@@ -66,35 +53,29 @@ interface AppStore {
     setDefaultFontSize: (size: number) => void;
     setDefaultFontColor: (color: string) => void;
 
-    // Preview
+    // Preview State
     previewEnabled: boolean;
     setPreviewEnabled: (enabled: boolean) => void;
+    
+    // Font preview for hover effect (doesn't change actual box value)
+    fontPreview: { boxId: string; fontFamily: string } | null;
+    setFontPreview: (preview: { boxId: string; fontFamily: string } | null) => void;
 
     // UI State
-    viewMode: ViewMode;
     error: string | null;
-    setViewMode: (mode: ViewMode) => void;
     setError: (error: string | null) => void;
 
-    // API
-    apiOnline: boolean;
+    // Fonts
     fonts: Font[];
-    emailConfig: EmailConfig | null;
-    setApiStatus: (online: boolean) => void;
     setFonts: (fonts: Font[]) => void;
-    setEmailConfig: (config: EmailConfig) => void;
 
-    // Email Mode
-    emailSettings: EmailSettings;
-    emailProgress: EmailProgress;
-    setEmailSettings: (settings: Partial<EmailSettings>) => void;
-    setEmailProgress: (progress: Partial<EmailProgress>) => void;
-    resetEmailProgress: () => void;
-
-    // Reset
+    // Reset Actions
     reset: () => void;
-    resetToDownload: () => void;
 }
+
+// =============================================================================
+// Initial State
+// =============================================================================
 
 const initialState = {
     templateFile: null,
@@ -106,23 +87,23 @@ const initialState = {
     csvFile: null,
     csvHeaders: [] as string[],
     csvData: [] as CsvRow[],
-    emailColumn: '',
-    defaultFont: '',
+    defaultFont: 'Inter',
     defaultFontSize: 60,
     defaultFontColor: '#000000',
     previewEnabled: true,
-    viewMode: 'certificate' as ViewMode,
+    fontPreview: null as { boxId: string; fontFamily: string } | null,
     error: null,
-    apiOnline: false,
     fonts: [] as Font[],
-    emailConfig: null,
-    emailSettings: defaultEmailSettings,
-    emailProgress: defaultEmailProgress,
 };
+
+// =============================================================================
+// Store Implementation
+// =============================================================================
 
 export const useAppStore = create<AppStore>((set, get) => ({
     ...initialState,
 
+    // Template Actions
     setTemplate: (file, image, info) => set({
         templateFile: file,
         templateImage: image,
@@ -139,6 +120,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         activeBoxId: null,
     }),
 
+    // Text Box Actions
     addBox: (boxData) => {
         const { defaultFont, defaultFontSize, defaultFontColor, csvHeaders } = get();
         const newBox: TextBox = {
@@ -147,7 +129,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
             field: csvHeaders[0] || '',
             fontSize: defaultFontSize,
             fontColor: defaultFontColor,
-            fontFile: defaultFont,
+            fontFamily: defaultFont,
             hAlign: 'center',
             vAlign: 'bottom',
         };
@@ -172,51 +154,44 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     setDisplayScale: (displayScale) => set({ displayScale }),
 
-    setCsvData: (file, headers, data) => {
-        const emailCol = headers.find(h => h.toLowerCase().includes('email') || h.toLowerCase().includes('mail')) || '';
-        set({ csvFile: file, csvHeaders: headers, csvData: data, emailColumn: emailCol });
-    },
+    // CSV Data Actions
+    setCsvData: (file, headers, data) => set({ 
+        csvFile: file, 
+        csvHeaders: headers, 
+        csvData: data 
+    }),
 
     clearCsvData: () => set({
         csvFile: null,
         csvHeaders: [],
         csvData: [],
-        emailColumn: '',
     }),
 
-    setEmailColumn: (emailColumn) => set({ emailColumn }),
-
+    // Default Font Settings
     setDefaultFont: (defaultFont) => set({ defaultFont }),
     setDefaultFontSize: (defaultFontSize) => set({ defaultFontSize }),
     setDefaultFontColor: (defaultFontColor) => set({ defaultFontColor }),
 
+    // Preview State
     setPreviewEnabled: (previewEnabled) => set({ previewEnabled }),
+    setFontPreview: (fontPreview) => set({ fontPreview }),
 
-    setViewMode: (viewMode) => set({ viewMode }),
+    // UI State
     setError: (error) => set({ error }),
 
-    setApiStatus: (apiOnline) => set({ apiOnline }),
+    // Fonts
     setFonts: (fonts) => {
-        const defaultFont = fonts.length > 0 ? fonts[0].filename : '';
+        const defaultFont = fonts.length > 0 ? fonts[0].family : 'Inter';
         set((state) => ({
             fonts,
             defaultFont,
-            // Update any boxes that have empty fontFile
+            // Update any boxes that have empty fontFamily
             boxes: state.boxes.map(box =>
-                box.fontFile === '' && defaultFont ? { ...box, fontFile: defaultFont } : box
+                !box.fontFamily && defaultFont ? { ...box, fontFamily: defaultFont } : box
             ),
         }));
     },
-    setEmailConfig: (emailConfig) => set({ emailConfig }),
 
-    setEmailSettings: (settings) => set((state) => ({
-        emailSettings: { ...state.emailSettings, ...settings }
-    })),
-    setEmailProgress: (progress) => set((state) => ({
-        emailProgress: { ...state.emailProgress, ...progress }
-    })),
-    resetEmailProgress: () => set({ emailProgress: defaultEmailProgress }),
-
+    // Reset
     reset: () => set(initialState),
-    resetToDownload: () => set({ viewMode: 'certificate', emailProgress: defaultEmailProgress }),
 }));
