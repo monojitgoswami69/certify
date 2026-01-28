@@ -1,22 +1,33 @@
+/**
+ * Box Customizer Component
+ * 
+ * Controls for customizing the active text box properties:
+ * - CSV field selection
+ * - Font selection (Google Fonts with search)
+ * - Font size and color
+ * - Text alignment (horizontal and vertical)
+ */
+
 import { useState } from 'react';
 import { Trash2, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
+import { FontSelector } from './FontSelector';
 import type { HorizontalAlign, VerticalAlign } from '../types';
 
 export function BoxCustomizer() {
     const {
         boxes,
         activeBoxId,
-        fonts,
         csvHeaders,
         csvData,
         updateBox,
         deleteBox,
+        setFontPreview,
     } = useAppStore();
 
     const activeBox = boxes.find(b => b.id === activeBoxId);
 
-    // Local state for font size input to allow erasing
+    // Local state for font size input
     const [fontSizeInput, setFontSizeInput] = useState<string>(
         activeBox ? String(activeBox.fontSize) : '60'
     );
@@ -26,6 +37,7 @@ export function BoxCustomizer() {
         setFontSizeInput(String(activeBox.fontSize));
     }
 
+    // Show placeholder when no boxes exist
     if (!activeBox) {
         if (boxes.length === 0) {
             return (
@@ -118,26 +130,25 @@ export function BoxCustomizer() {
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                 >
                     <option value="">Select a field...</option>
-                    {csvHeaders.map((header) => (
-                        <option key={header} value={header}>{header}</option>
+                    {csvHeaders.map(h => (
+                        <option key={h} value={h}>{h}</option>
                     ))}
                 </select>
             </div>
 
             {/* Font Selector */}
             <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1.5">Font</label>
-                <select
-                    value={activeBox.fontFile}
-                    onChange={(e) => updateBox(activeBox.id, { fontFile: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
-                >
-                    {fonts.map((font) => (
-                        <option key={font.filename} value={font.filename}>
-                            {font.displayName}
-                        </option>
-                    ))}
-                </select>
+                <FontSelector
+                    value={activeBox.fontFamily}
+                    onChange={(fontFamily) => updateBox(activeBox.id, { fontFamily })}
+                    onPreview={(fontFamily) => {
+                        if (fontFamily) {
+                            setFontPreview({ boxId: activeBox.id, fontFamily });
+                        } else {
+                            setFontPreview(null);
+                        }
+                    }}
+                />
             </div>
 
             {/* Font Size & Color */}

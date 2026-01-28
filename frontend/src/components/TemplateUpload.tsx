@@ -1,3 +1,10 @@
+/**
+ * Template Upload Component
+ * 
+ * Drag-and-drop or click-to-browse file upload for certificate templates.
+ * Supports common image formats (JPG, PNG, WebP).
+ */
+
 import { useCallback } from 'react';
 import { Upload } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
