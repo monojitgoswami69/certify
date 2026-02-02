@@ -85,7 +85,9 @@ export function GenerateButton() {
         templateImage,
         csvData,
         boxes,
+        workerCount: configuredWorkerCount,
         setError,
+        setGenerationStatus,
     } = useAppStore();
 
     const [progress, setProgress] = useState<GenerateProgress>(DEFAULT_PROGRESS);
@@ -128,6 +130,7 @@ export function GenerateButton() {
         pauseRef.current = false;
         setLocalPaused(false);
         setError(null);
+        setGenerationStatus('running');
 
         const startTime = Date.now();
         const errors: FailedRecord[] = [];
@@ -166,10 +169,23 @@ export function GenerateButton() {
             status: 'initializing',
         }));
 
-        const workerPool = new CertificateWorkerPool();
-        workerPoolRef.current = workerPool;
-        const workerCount = await workerPool.initialize(templateImage, validBoxes, templateMimeType);
-        const fileExtension = workerPool.getFileExtension();
+        let workerPool: CertificateWorkerPool;
+        let workerCount: number;
+        let fileExtension: string;
+        
+        try {
+            workerPool = new CertificateWorkerPool();
+            workerPoolRef.current = workerPool;
+            // Use the configured worker count from settings
+            workerCount = await workerPool.initialize(templateImage, validBoxes, templateMimeType, configuredWorkerCount);
+            fileExtension = workerPool.getFileExtension();
+        } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : 'Failed to initialize workers';
+            setError(errorMsg);
+            setProgress(DEFAULT_PROGRESS);
+            setGenerationStatus('idle');
+            return;
+        }
 
         setProgress(prev => ({
             ...prev,
@@ -189,6 +205,7 @@ export function GenerateButton() {
                 workerPool.terminate();
                 workerPoolRef.current = null;
                 setProgress(prev => ({ ...prev, status: 'idle' }));
+                setGenerationStatus('idle');
                 return;
             }
 
@@ -319,13 +336,14 @@ export function GenerateButton() {
         workerPoolRef.current = null;
 
         setProgress(prev => ({ ...prev, status: 'completed' }));
+        setGenerationStatus('completed');
         setRetryQueue(errors);
 
         setLogs(prev => ({
             ...prev,
             totalElapsed: Date.now() - startTime,
         }));
-    }, [templateImage, boxes, validBoxes, getFilenameBasis, setError]);
+    }, [templateImage, boxes, validBoxes, getFilenameBasis, setError, setGenerationStatus, configuredWorkerCount]);
 
     // Event handlers
     const handleGenerate = () => {
@@ -359,11 +377,13 @@ export function GenerateButton() {
             workerPoolRef.current = null;
         }
         setProgress(DEFAULT_PROGRESS);
+        setGenerationStatus('idle');
         setRetryQueue([]);
     };
 
     const handleReset = () => {
         setProgress(DEFAULT_PROGRESS);
+        setGenerationStatus('idle');
         setRetryQueue([]);
         setLogs(DEFAULT_LOGS);
     };
@@ -407,24 +427,33 @@ export function GenerateButton() {
                 <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200">
                     <div className="flex items-center gap-2 mb-2">
                         <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                        <span className="font-medium text-emerald-700">Generation Complete!</span>
+                        <span className="font-medium text-emerald-700">Generation Complete</span>
                     </div>
                     <div className="text-sm text-emerald-600 space-y-1">
-                        <p>✓ {progress.generated} certificate{progress.generated !== 1 ? 's' : ''} generated</p>
+                        <div className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                            <span>{progress.generated} certificate{progress.generated !== 1 ? 's' : ''} generated</span>
+                        </div>
                         {progress.totalZipParts > 1 && (
-                            <p className="text-slate-500">📦 Downloaded as {progress.totalZipParts} ZIP files</p>
+                            <div className="flex items-center gap-1.5 text-slate-500">
+                                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full"></span>
+                                <span>Downloaded as {progress.totalZipParts} ZIP files</span>
+                            </div>
                         )}
                         {progress.workerCount > 0 && (
-                            <div className="flex items-center gap-1 text-slate-500">
+                            <div className="flex items-center gap-1.5 text-slate-500">
                                 <Cpu className="w-3.5 h-3.5" />
-                                <span>Used {progress.workerCount} parallel workers ({certsPerSecond}/sec)</span>
+                                <span>{progress.workerCount} workers used at {certsPerSecond} certs/sec</span>
                             </div>
                         )}
                         {progress.errors.length > 0 && (
-                            <p className="text-amber-600">⚠ {progress.errors.length} failed</p>
+                            <div className="flex items-center gap-1.5 text-amber-600">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                <span>{progress.errors.length} failed</span>
+                            </div>
                         )}
                         {logs.totalElapsed > 0 && (
-                            <div className="flex items-center gap-1 text-slate-500 mt-2">
+                            <div className="flex items-center gap-1.5 text-slate-500 mt-2">
                                 <Clock className="w-3.5 h-3.5" />
                                 <span>Completed in {formatElapsed(logs.totalElapsed)}</span>
                             </div>
@@ -443,12 +472,13 @@ export function GenerateButton() {
                     </button>
                 )}
 
-                {/* Reset */}
+                {/* Done button */}
                 <button
                     onClick={handleReset}
-                    className="w-full text-sm text-slate-500 hover:text-slate-700"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
                 >
-                    Generate Another Batch
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Done</span>
                 </button>
             </div>
         );
@@ -495,7 +525,7 @@ export function GenerateButton() {
                 {/* Batch indicator for large jobs */}
                 {progress.totalZipParts > 1 && (
                     <div className="text-xs text-slate-400 mb-2">
-                        📦 Large batch: will create {progress.totalZipParts} ZIP files
+                        Large batch: will create {progress.totalZipParts} ZIP files
                     </div>
                 )}
 

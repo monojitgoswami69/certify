@@ -57,6 +57,14 @@ interface AppStore {
     previewEnabled: boolean;
     setPreviewEnabled: (enabled: boolean) => void;
     
+    // Worker count for parallel generation (1 = single, 2+ = parallel)
+    workerCount: number;
+    setWorkerCount: (count: number) => void;
+    
+    // Generation status for UI coordination
+    generationStatus: 'idle' | 'running' | 'completed';
+    setGenerationStatus: (status: 'idle' | 'running' | 'completed') => void;
+    
     // Font preview for hover effect (doesn't change actual box value)
     fontPreview: { boxId: string; fontFamily: string } | null;
     setFontPreview: (preview: { boxId: string; fontFamily: string } | null) => void;
@@ -91,6 +99,8 @@ const initialState = {
     defaultFontSize: 60,
     defaultFontColor: '#000000',
     previewEnabled: true,
+    workerCount: 1,
+    generationStatus: 'idle' as 'idle' | 'running' | 'completed',
     fontPreview: null as { boxId: string; fontFamily: string } | null,
     error: null,
     fonts: [] as Font[],
@@ -174,6 +184,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     // Preview State
     setPreviewEnabled: (previewEnabled) => set({ previewEnabled }),
+    setWorkerCount: (workerCount) => set({ workerCount }),
+    setGenerationStatus: (generationStatus) => set({ generationStatus }),
     setFontPreview: (fontPreview) => set({ fontPreview }),
 
     // UI State
