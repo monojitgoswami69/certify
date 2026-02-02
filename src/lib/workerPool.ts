@@ -56,11 +56,13 @@ export class CertificateWorkerPool {
 
     /**
      * Initialize the worker pool - sends template to each worker ONCE
+     * @param maxWorkers - If 1, uses single worker. If undefined, uses all cores.
      */
     async initialize(
         templateImage: HTMLImageElement,
         boxes: TextBox[],
-        templateMimeType: string
+        templateMimeType: string,
+        maxWorkers?: number
     ): Promise<number> {
         // Determine output format based on template
         if (templateMimeType.includes('png')) {
@@ -86,8 +88,8 @@ export class CertificateWorkerPool {
         canvas.width = 0;
         canvas.height = 0;
 
-        // Create worker pool
-        const workerCount = CertificateWorkerPool.getOptimalWorkerCount();
+        // Create worker pool - use specified count or optimal
+        const workerCount = maxWorkers ?? CertificateWorkerPool.getOptimalWorkerCount();
         const initPromises: Promise<void>[] = [];
         
         for (let i = 0; i < workerCount; i++) {
@@ -101,15 +103,27 @@ export class CertificateWorkerPool {
                 ready: false,
             };
 
-            const initPromise = new Promise<void>((resolve) => {
+            const initPromise = new Promise<void>((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error(`Worker ${i} initialization timed out`));
+                }, 10000); // 10 second timeout
+                
                 const initHandler = (event: MessageEvent) => {
                     if (event.data.type === 'ready') {
+                        clearTimeout(timeout);
                         state.ready = true;
                         worker.removeEventListener('message', initHandler);
                         resolve();
                     }
                 };
+                
+                const errorHandler = (event: ErrorEvent) => {
+                    clearTimeout(timeout);
+                    reject(new Error(`Worker ${i} error: ${event.message}`));
+                };
+                
                 worker.addEventListener('message', initHandler);
+                worker.addEventListener('error', errorHandler);
             });
 
             this.workerStates.push(state);

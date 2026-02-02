@@ -61,14 +61,22 @@ export default function App() {
         csvFile,
         error,
         previewEnabled,
+        workerCount,
+        generationStatus,
         setFonts,
         setPreviewEnabled,
+        setWorkerCount,
         clearTemplate,
         clearCsvData,
     } = useAppStore();
 
     const [showCsvPreview, setShowCsvPreview] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
+    
+    // Get max workers based on CPU cores
+    const maxWorkers = typeof navigator !== 'undefined' 
+        ? Math.max(2, Math.min(navigator.hardwareConcurrency || 4, 32))
+        : 4;
 
     // Check screen size for mobile detection
     useEffect(() => {
@@ -117,9 +125,9 @@ export default function App() {
             {/* Sidebar */}
             <aside className="w-[420px] bg-white border-r border-slate-200 overflow-y-auto p-4 space-y-4 flex-shrink-0">
                 {/* Header */}
-                <div className="pb-2 border-b border-slate-100 mb-2">
+                <div className="pb-2 border-b border-slate-100 mb-2 text-center">
                     <h1 className="text-lg font-bold text-slate-800">Certificate Generator</h1>
-                    <p className="text-xs text-slate-500">Create beautiful certificates in your browser</p>
+                    <p className="text-xs text-slate-500">Generate mass certificates at ease</p>
                 </div>
 
                 {/* Step 1: Upload Template */}
@@ -202,6 +210,34 @@ export default function App() {
 
                 {/* Step 5: Generate */}
                 <StepCard number={5} title="Download Certificates" status={step5Status}>
+                    {/* Worker count selector - only show when idle */}
+                    {generationStatus === 'idle' && (
+                        <div className="mb-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-medium text-slate-700">Parallel Workers</span>
+                                <span className="text-sm font-medium text-primary-600">{workerCount}</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="1"
+                                max={maxWorkers}
+                                value={workerCount}
+                                onChange={(e) => setWorkerCount(parseInt(e.target.value))}
+                                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-primary-600"
+                            />
+                            <div className="flex justify-between text-xs text-slate-400 mt-1">
+                                <span>1</span>
+                                <span>{maxWorkers}</span>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-2">
+                                {workerCount === 1 
+                                    ? 'Single worker mode - lower resource usage'
+                                    : `${workerCount} workers - faster but uses more resources`
+                                }
+                            </p>
+                        </div>
+                    )}
+                    
                     <GenerateButton />
                     {error && (
                         <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
