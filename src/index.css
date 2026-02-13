@@ -96,14 +96,34 @@ body {
 
 .animate-fade-in {
   animation: fade-in 0.8s ease-out forwards;
+  will-change: opacity;
 }
 
 .animate-slide-up {
   animation: slide-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
 }
 
 .animate-drift {
   animation: drift 10s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+@keyframes drift-fade {
+  from {
+    opacity: 0;
+    transform: translateX(-10px) translateY(-10px);
+  }
+
+  to {
+    opacity: 0.5;
+    transform: translateX(10px) translateY(10px);
+  }
+}
+
+.animate-drift-fade {
+  animation: drift-fade 4s ease-in-out infinite alternate;
+  will-change: transform, opacity;
 }
 
 .delay-100 {

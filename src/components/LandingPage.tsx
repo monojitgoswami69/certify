@@ -1,10 +1,11 @@
+import React from 'react';
 import { ArrowRight, Box, Cpu, Download, Globe, ShieldCheck, Zap, Github } from 'lucide-react';
 
 interface LandingPageProps {
     onStart: () => void;
 }
 
-export function LandingPage({ onStart }: LandingPageProps) {
+export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
     return (
         <div className="min-h-screen bg-white text-slate-900 font-sans selection:bg-primary-100 selection:text-primary-700">
             {/* Navigation */}
@@ -23,24 +24,24 @@ export function LandingPage({ onStart }: LandingPageProps) {
             {/* Hero Section */}
             <header className="relative pt-32 pb-12 px-6 overflow-hidden text-center">
                 <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-full -z-10 pointer-events-none opacity-50">
-                    <div className="absolute top-20 left-10 w-96 h-96 bg-primary-200 rounded-full mix-blend-multiply filter blur-3xl animate-drift" />
-                    <div className="absolute top-40 right-10 w-96 h-96 bg-indigo-200 rounded-full mix-blend-multiply filter blur-3xl animate-drift delay-500" />
+                    <div className="absolute top-20 left-10 w-96 h-96 bg-primary-200 rounded-full mix-blend-multiply filter blur-3xl animate-drift-fade" />
+                    <div className="absolute top-40 right-10 w-96 h-96 bg-indigo-200 rounded-full mix-blend-multiply filter blur-3xl animate-drift-fade delay-500" />
                 </div>
 
                 <div className="max-w-4xl mx-auto space-y-8">
-                    <h1 className="text-6xl md:text-7xl font-bold tracking-tight text-slate-900 leading-[1.1] animate-slide-up font-serif">
+                    <h1 className="text-6xl md:text-7xl font-bold tracking-tight text-slate-900 leading-[1.1] opacity-0 animate-slide-up font-serif">
                         Generate Mass <br />
                         <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary-600 via-indigo-600 to-violet-600">
                             Certificates in Seconds
                         </span>
                     </h1>
 
-                    <p className="text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed animate-slide-up delay-100">
+                    <p className="text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed opacity-0 animate-slide-up delay-100">
                         A powerful, 100% client-side tool to design and batch generate
                         personalized certificates from CSV data. No backend, no sign ins, just pure productivity.
                     </p>
 
-                    <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4 animate-slide-up delay-200">
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4 opacity-0 animate-slide-up delay-200">
                         <button
                             onClick={onStart}
                             className="w-full sm:w-auto px-10 py-5 bg-slate-900 text-white rounded-2xl font-bold text-lg hover:bg-slate-800 hover:shadow-2xl hover:shadow-slate-900/20 transition-all active:scale-95 flex items-center justify-center gap-2 group cursor-pointer"
@@ -202,7 +203,7 @@ export function LandingPage({ onStart }: LandingPageProps) {
             </footer>
         </div>
     );
-}
+});
 
 function FeatureCard({ icon, title, description }: { icon: React.ReactNode, title: string, description: string }) {
     return (
