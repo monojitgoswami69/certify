@@ -11,7 +11,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Download, Loader2, X, CheckCircle2, AlertCircle, RefreshCw, Clock, Cpu } from 'lucide-react';
-import JSZip from 'jszip';
+import { downloadZip } from 'client-zip';
 import { jsPDF } from 'jspdf';
 import { useAppStore } from '../store/appStore';
 import { downloadBlob, sanitizeFilename, delay } from '../lib/utils';
@@ -25,8 +25,14 @@ import type { CsvRow } from '../types';
 
 /**
  * Target maximum size per ZIP file (1GB).
- * Used only during pre-generation probe to calculate certsPerZip.
- * NOT checked per-certificate during mass generation.
+ * 
+ * MEMORY SAFETY: We use client-zip which efficiently streams input data.
+ * The primary memory consumer is the final ZIP blob itself.
+ * 
+ * - 1GB chunk = ~1GB output ZIP blob.
+ * 
+ * This keeps us comfortably under the 1.5GB process limit while 
+ * maximizing the number of certificates per download.
  */
 const TARGET_ZIP_SIZE_BYTES = 1024 * 1024 * 1024; // 1GB per ZIP part
 
@@ -98,6 +104,9 @@ export function GenerateButton() {
     const [retryQueue, setRetryQueue] = useState<FailedRecord[]>([]);
     const abortRef = useRef(false);
     const workerPoolRef = useRef<CertificateWorkerPool | null>(null);
+    // Track current batch for immediate memory flush on abort
+    const currentBatchRef = useRef<Array<{ name: string; lastModified: Date; input: Blob }> | null>(null);
+    const zipBlobRef = useRef<Blob | null>(null);
 
     const validBoxes = boxes.filter(b => b.field);
     const isReady = templateImage && csvData.length > 0 && validBoxes.length > 0 && outputFormats.length > 0;
@@ -253,7 +262,7 @@ export function GenerateButton() {
         // =====================================================================
         // PHASE 3: Prepare all tasks
         // =====================================================================
-        const allTasks = records.map((record, i) => {
+        let allTasks: Array<{ id: number; row: CsvRow; rowIndex: number; filename: string }> | null = records.map((record, i) => {
             const displayName = getFilenameBasis(record.row);
             return {
                 id: i,
@@ -263,7 +272,7 @@ export function GenerateButton() {
             };
         });
 
-        const taskMap = new Map(allTasks.map(t => [t.id, t]));
+        let taskMap: Map<number, { id: number; row: CsvRow; rowIndex: number; filename: string }> | null = new Map(allTasks.map(t => [t.id, t]));
         const totalZipParts = Math.ceil(allTasks.length / certsPerZip);
 
         if (!isRetry) {
@@ -282,13 +291,15 @@ export function GenerateButton() {
 
             // Slice this chunk's tasks
             const chunkStart = chunkIndex * certsPerZip;
-            const chunkEnd = Math.min(chunkStart + certsPerZip, allTasks.length);
-            const chunkTasks = allTasks.slice(chunkStart, chunkEnd);
+            const chunkEnd = Math.min(chunkStart + certsPerZip, allTasks!.length);
+            const chunkTasks = allTasks!.slice(chunkStart, chunkEnd);
             const currentZipPart = chunkIndex + 1;
 
-            // Fresh JSZip for this chunk
-            let zip: JSZip | null = new JSZip();
-            const folder = zip.folder('certificates')!;
+            // Fresh collection for this chunk
+            // client-zip takes an array of file objects
+            const currentBatchFiles: Array<{ name: string; lastModified: Date; input: Blob }> = [];
+            currentBatchRef.current = currentBatchFiles; // Track for abort cleanup
+            const batchTimestamp = new Date(); // Shared timestamp for the entire batch
             let chunkGeneratedCount = 0;
 
             // Update UI: GENERATING
@@ -315,12 +326,20 @@ export function GenerateButton() {
                 // Process successful result
                 if (result && !result.error && result.blob) {
                     const ext = format === 'pdf' ? 'jpg' : fileExtension;
-                    folder.file(`${result.filename}.${ext}`, result.blob);
-                    result.blob = undefined; // Release — JSZip now owns the reference
+                    const filename = `certificates/${result.filename}.${ext}`;
+
+                    // Add to batch collection
+                    currentBatchFiles.push({
+                        name: filename,
+                        lastModified: batchTimestamp,
+                        input: result.blob
+                    });
+
+                    result.blob = undefined; // Release — array now owns the reference
                     chunkGeneratedCount++;
                     totalGeneratedCount++;
                 } else if (result?.error) {
-                    const task = taskMap.get(result.id);
+                    const task = taskMap!.get(result.id);
                     errors.push({
                         rowIndex: result.rowIndex,
                         name: result.filename,
@@ -357,7 +376,9 @@ export function GenerateButton() {
             // -----------------------------------------------------------------
 
             if (abortRef.current || chunkGeneratedCount === 0) {
-                zip = null;
+                // Clear array to release blobs
+                currentBatchFiles.length = 0;
+                currentBatchRef.current = null;
                 continue;
             }
 
@@ -370,32 +391,45 @@ export function GenerateButton() {
                 }));
 
                 const isLandscape = templateImage.naturalWidth > templateImage.naturalHeight;
-                const certFolder = zip.folder('certificates')!;
 
-                // Find all raw JPEG files stored during generation
-                const jpgEntries = Object.keys(certFolder.files)
-                    .filter(name => name.startsWith('certificates/') && name.endsWith('.jpg'));
-
-                for (const fullPath of jpgEntries) {
+                // Iterate through the batch to convert JPG blobs to PDF blobs
+                // We modify the inputs in-place within the array
+                for (let i = 0; i < currentBatchFiles.length; i++) {
                     if (abortRef.current) break;
 
-                    const arrayBuffer = await certFolder.files[fullPath].async('arraybuffer');
-                    const pdf = new jsPDF({
-                        orientation: isLandscape ? 'landscape' : 'portrait',
-                        unit: 'px',
-                        format: [templateImage.naturalWidth, templateImage.naturalHeight],
-                    });
-                    pdf.addImage(
-                        new Uint8Array(arrayBuffer),
-                        'JPEG', 0, 0,
-                        templateImage.naturalWidth,
-                        templateImage.naturalHeight
-                    );
+                    const fileObj = currentBatchFiles[i];
 
-                    // Replace .jpg with .pdf in the ZIP
-                    const pdfPath = fullPath.replace(/\.jpg$/, '.pdf').replace('certificates/', '');
-                    certFolder.file(pdfPath, pdf.output('blob'));
-                    certFolder.remove(fullPath.replace('certificates/', ''));
+                    // Only process files that look like our certificates (safe check)
+                    if (fileObj.name.endsWith('.jpg') && fileObj.name.startsWith('certificates/')) {
+                        let arrayBuffer: ArrayBuffer | null = await fileObj.input.arrayBuffer();
+                        const pdf = new jsPDF({
+                            orientation: isLandscape ? 'landscape' : 'portrait',
+                            unit: 'px',
+                            format: [templateImage.naturalWidth, templateImage.naturalHeight],
+                        });
+
+                        pdf.addImage(
+                            new Uint8Array(arrayBuffer),
+                            'JPEG', 0, 0,
+                            templateImage.naturalWidth,
+                            templateImage.naturalHeight
+                        );
+
+                        // Release the intermediate ArrayBuffer before generating the PDF blob
+                        arrayBuffer = null;
+
+                        // Replace the input blob with the PDF blob
+                        fileObj.input = pdf.output('blob');
+                        // Update filename extension
+                        fileObj.name = fileObj.name.replace(/\.jpg$/, '.pdf');
+                    }
+                }
+
+                // Check abort after PDF conversion loop — flush memory immediately
+                if (abortRef.current) {
+                    currentBatchFiles.length = 0;
+                    currentBatchRef.current = null;
+                    continue;
                 }
             }
 
@@ -408,33 +442,43 @@ export function GenerateButton() {
 
             // -----------------------------------------------------------------
             // ZIP & DOWNLOAD: Package and trigger download
+            //
+            // Using client-zip to stream-process the upload (array -> blob)
             // -----------------------------------------------------------------
             try {
-                const zipBlob = await zip.generateAsync({
-                    type: 'blob',
-                    compression: 'STORE', // No compression — fastest
-                    streamFiles: true,
-                });
+                // downloadZip returns an async iterable (Stream), .blob() consumes it
+                let zipBlob: Blob | null = await downloadZip(currentBatchFiles).blob();
+                zipBlobRef.current = zipBlob; // Track for abort cleanup
+
+                // Immediately clear the input array to release the source blobs
+                // The zipBlob is now the only large object in memory
+                currentBatchFiles.length = 0;
+                currentBatchRef.current = null;
 
                 const zipFileName = totalZipParts > 1
                     ? `certificates_${format}_part${currentZipPart}_of_${totalZipParts}.zip`
                     : `certificates_${format}.zip`;
 
                 downloadBlob(zipBlob, zipFileName);
+
+                // Release our reference to the ZIP blob
+                zipBlob = null;
+                zipBlobRef.current = null;
             } catch {
+                currentBatchFiles.length = 0;
+                currentBatchRef.current = null;
+                zipBlobRef.current = null;
                 setError(`Failed to create ZIP part ${currentZipPart}`);
             }
 
             // -----------------------------------------------------------------
-            // GC + DOWNLOAD FLUSH: Release all references, wait for browser to flush download
+            // GC FLUSH: Give the engine time to collect released blobs
             // -----------------------------------------------------------------
-            zip = null;
-            await delay(50); // GC pause
+            await delay(100);
 
-            // CRITICAL: Wait 2 seconds for browser to flush the download to disk
-            // before starting the next batch. Without this, the download manager
-            // gets overwhelmed and stalls until workers stop.
-            if (chunkIndex < totalZipParts - 1) { // Don't wait after the last batch
+            // Wait for browser to flush the download to disk before starting
+            // the next batch. Without this, the download manager gets overwhelmed.
+            if (chunkIndex < totalZipParts - 1) {
                 setProgress(prev => ({
                     ...prev,
                     status: 'cooldown',
@@ -445,10 +489,14 @@ export function GenerateButton() {
         }
 
         // =====================================================================
-        // PHASE 5: Cleanup
+        // PHASE 5: Cleanup — aggressively release all large data structures
         // =====================================================================
         workerPool.terminate();
         workerPoolRef.current = null;
+
+        // Release task data — no longer needed after generation
+        allTasks = null;
+        taskMap = null;
 
         if (abortRef.current) return { generatedCount: 0, errors: [] };
 
@@ -458,9 +506,11 @@ export function GenerateButton() {
             generated: totalGeneratedCount,
             totalZipParts,
         }));
-        // Note: generationStatus is now handled by the finally block in handleGenerate
         setRetryQueue(errors);
-        setLogs(prev => ({ ...prev, totalElapsed: pureGenerationTime })); // Final update with pure generation time
+        setLogs(prev => ({ ...prev, totalElapsed: pureGenerationTime }));
+
+        // Give the browser time to GC worker memory and blob data
+        await delay(200);
 
         return { generatedCount: totalGeneratedCount, errors };
     }, [templateImage, boxes, validBoxes, getFilenameBasis, setError, setGenerationStatus, configuredWorkerCount]);
@@ -546,11 +596,22 @@ export function GenerateButton() {
 
     const handleAbort = () => {
         abortRef.current = true;
+
+        // IMMEDIATE MEMORY FLUSH: Clear any in-progress batch and ZIP blob
+        if (currentBatchRef.current) {
+            currentBatchRef.current.length = 0;
+            currentBatchRef.current = null;
+        }
+        if (zipBlobRef.current) {
+            zipBlobRef.current = null;
+        }
+
         // Terminate worker pool if running
         if (workerPoolRef.current) {
             workerPoolRef.current.terminate();
             workerPoolRef.current = null;
         }
+
         setProgress(DEFAULT_PROGRESS);
         setGenerationStatus('idle');
         setRetryQueue([]);

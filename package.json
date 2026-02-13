@@ -11,9 +11,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "client-zip": "^2.5.0",
     "clsx": "^2.1.1",
     "jspdf": "^4.0.0",
-    "jszip": "^3.10.1",
     "lucide-react": "^0.562.0",
     "papaparse": "^5.5.3",
     "react": "^19.2.0",

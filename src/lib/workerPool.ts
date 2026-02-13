@@ -224,7 +224,7 @@ export class CertificateWorkerPool {
                         completedCount++;
 
                         // Call result handler synchronously — no promise queue,
-                        // no async backlog. The caller adds to JSZip (sync).
+                        // no async backlog. The caller collects for client-zip.
                         onResult?.(
                             {
                                 id: r.id,
