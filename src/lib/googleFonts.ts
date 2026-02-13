@@ -33,41 +33,16 @@ const GOOGLE_FONTS_CSS_URL = 'https://fonts.googleapis.com/css2';
 // Track which fonts have been requested (not necessarily loaded yet)
 const requestedFonts = new Set<string>();
 
+import googleFontsData from '../data/google-fonts.json';
+
 // In-memory font list
-let allGoogleFonts: GoogleFont[] = [];
-let fontListPromise: Promise<GoogleFont[]> | null = null;
-
-// =============================================================================
-// Font List Management
-// =============================================================================
+let allGoogleFonts: GoogleFont[] = googleFontsData as GoogleFont[];
 
 /**
- * Fetch fonts from static JSON file
- */
-async function fetchStaticFonts(): Promise<GoogleFont[]> {
-    try {
-        const response = await fetch('/google-fonts.json');
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.json();
-    } catch (error) {
-        console.warn('Failed to load fonts JSON:', error);
-        return CURATED_FONTS;
-    }
-}
-
-/**
- * Initialize fonts from static JSON
+ * Initialize fonts (sync now, but kept async for signature compatibility if needed)
  */
 export async function initializeGoogleFonts(): Promise<GoogleFont[]> {
-    if (allGoogleFonts.length > 0) return allGoogleFonts;
-    if (fontListPromise) return fontListPromise;
-    
-    fontListPromise = fetchStaticFonts().then(fonts => {
-        allGoogleFonts = fonts.length > 0 ? fonts : CURATED_FONTS;
-        return allGoogleFonts;
-    });
-    
-    return fontListPromise;
+    return allGoogleFonts;
 }
 
 /**
@@ -98,20 +73,20 @@ export function loadGoogleFont(family: string): FontLoadResult {
     if (requestedFonts.has(family)) {
         return { success: true, family };
     }
-    
+
     // Check if link already exists
     if (document.querySelector(`link[data-font="${family}"]`)) {
         requestedFonts.add(family);
         return { success: true, family };
     }
-    
+
     // Inject stylesheet immediately
     const link = document.createElement('link');
     link.rel = 'stylesheet';
     link.setAttribute('data-font', family);
     link.href = `${GOOGLE_FONTS_CSS_URL}?family=${encodeURIComponent(family)}:wght@400;500;600;700&display=swap`;
     document.head.appendChild(link);
-    
+
     requestedFonts.add(family);
     return { success: true, family };
 }
@@ -139,10 +114,10 @@ export function preloadFonts(families: string[]): FontLoadResult[] {
  */
 export function searchFonts(query: string, fonts: GoogleFont[]): GoogleFont[] {
     if (!query.trim()) return fonts;
-    
+
     const lowerQuery = query.toLowerCase().trim();
-    
-    return fonts.filter(font => 
+
+    return fonts.filter(font =>
         font.family.toLowerCase().includes(lowerQuery) ||
         font.category.toLowerCase().includes(lowerQuery)
     ).sort((a, b) => {

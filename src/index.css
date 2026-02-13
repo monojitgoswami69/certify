@@ -1,7 +1,9 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: 'Outfit', system-ui, sans-serif;
+  --font-sans: 'Jura', system-ui, sans-serif;
+  --font-serif: 'Averia Libre', sans-serif;
+  --font-square: 'Nova Square', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
   --color-primary-50: #eef2ff;
@@ -14,6 +16,10 @@
   --color-primary-700: #4338ca;
   --color-primary-800: #3730a3;
   --color-primary-900: #312e81;
+}
+
+body {
+  font-weight: 700;
 }
 
 /* Custom scrollbar */
@@ -52,33 +58,71 @@
   }
 }
 
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes drift {
+  from {
+    transform: translateX(0) translateY(0);
+  }
+
+  to {
+    transform: translateX(20px) translateY(20px);
+  }
+}
+
 .animate-pulse-subtle {
   animation: pulse-subtle 2s ease-in-out infinite;
 }
 
-/* Prose styles for email preview */
-.prose {
-  font-size: 0.9375rem;
-  line-height: 1.6;
-  color: #334155;
+.animate-fade-in {
+  animation: fade-in 0.8s ease-out forwards;
 }
 
-.prose h1,
-.prose h2,
-.prose h3,
-.prose h4 {
-  color: #1e293b;
-  margin-bottom: 0.5em;
+.animate-slide-up {
+  animation: slide-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.prose p {
-  margin-bottom: 1em;
+.animate-drift {
+  animation: drift 10s ease-in-out infinite alternate;
 }
 
-.prose a {
-  color: #4f46e5;
-  text-decoration: underline;
+.delay-100 {
+  animation-delay: 100ms;
 }
+
+.delay-200 {
+  animation-delay: 200ms;
+}
+
+.delay-300 {
+  animation-delay: 300ms;
+}
+
+.delay-500 {
+  animation-delay: 500ms;
+}
+
+
 
 /* Range slider styling */
 input[type="range"] {

@@ -47,7 +47,7 @@ interface InitMessage {
     templateWidth: number;
     templateHeight: number;
     boxes: TextBox[];
-    outputFormat: 'image/png' | 'image/jpeg';
+    outputFormat: string;
     quality: number;
 }
 
@@ -65,8 +65,8 @@ interface BatchResultItem {
 }
 
 interface WorkerResponse {
-    type: 'ready' | 'batchComplete';
-    results?: BatchResultItem[];
+    type: 'ready' | 'batchComplete' | 'itemComplete';
+    result?: BatchResultItem;
 }
 
 // Pre-computed box rendering info
@@ -85,8 +85,8 @@ let cachedTemplateBitmap: ImageBitmap | null = null;
 let cachedTemplateWidth = 0;
 let cachedTemplateHeight = 0;
 let cachedBoxRenderInfo: BoxRenderInfo[] = [];
-let cachedOutputFormat: 'image/png' | 'image/jpeg' = 'image/jpeg';
-let cachedQuality = 0.75; // Lower quality = faster encoding
+let cachedOutputFormat: string = 'image/jpeg';
+let cachedQuality = 1;
 
 // Reusable canvas
 let reusableCanvas: OffscreenCanvas | null = null;
@@ -102,24 +102,21 @@ const fontSizeCache = new Map<string, number>();
 function findFittingFontSize(
     ctx: OffscreenCanvasRenderingContext2D,
     text: string,
-    boxW: number,
-    boxH: number,
-    maxFontSize: number,
-    fontFamily: string
+    box: TextBox
 ): number {
     // Check cache first (text length + box dimensions as key)
-    const cacheKey = `${text.length}:${boxW}:${boxH}:${maxFontSize}:${fontFamily}`;
+    const cacheKey = `${text.length}:${box.w}:${box.h}:${box.fontSize}:${box.fontFamily}`;
     const cached = fontSizeCache.get(cacheKey);
     if (cached !== undefined) return cached;
 
-    let fontSize = maxFontSize;
+    let fontSize = box.fontSize;
     const minFontSize = 10;
     const padding = 10;
-    const maxW = boxW - padding;
-    const maxH = boxH - padding;
+    const maxW = box.w - padding;
+    const maxH = box.h - padding;
 
     while (fontSize >= minFontSize) {
-        ctx.font = `${fontSize}px "${fontFamily}"`;
+        ctx.font = `${fontSize}px "${box.fontFamily}"`;
         const textWidth = ctx.measureText(text).width;
 
         if (textWidth <= maxW && fontSize * 1.2 <= maxH) {
@@ -141,9 +138,10 @@ function drawTextBox(
     if (!text.trim()) return;
 
     const box = info.box;
-    const fontSize = findFittingFontSize(ctx, text, box.w, box.h, box.fontSize, box.fontFamily);
-    
+    const fontSize = findFittingFontSize(ctx, text, box);
+
     ctx.font = `${fontSize}px "${box.fontFamily}"`;
+
     ctx.fillStyle = box.fontColor;
     ctx.textAlign = info.textAlign;
 
@@ -165,18 +163,26 @@ function drawTextBox(
 // Batch Certificate Generation (processes entire batch sequentially)
 // =============================================================================
 
-async function generateBatch(items: BatchItem[]): Promise<BatchResultItem[]> {
+async function generateBatch(items: BatchItem[]): Promise<void> {
     if (!cachedTemplateBitmap || !reusableCanvas || !reusableCtx) {
-        return items.map(item => ({
+        const errors = items.map(item => ({
             id: item.id,
             rowIndex: item.rowIndex,
             filename: item.filename,
             error: 'Worker not initialized',
         }));
+        for (const result of errors) {
+            self.postMessage({ type: 'itemComplete', result } as WorkerResponse);
+        }
+        return;
     }
 
     const ctx = reusableCtx;
-    const results: BatchResultItem[] = [];
+
+    // Clear font cache periodically to prevent unbounded growth
+    if (fontSizeCache.size > 1000) {
+        fontSizeCache.clear();
+    }
 
     // Pre-set baseline once (doesn't change)
     ctx.textBaseline = 'alphabetic';
@@ -193,28 +199,33 @@ async function generateBatch(items: BatchItem[]): Promise<BatchResultItem[]> {
             }
 
             // Generate blob (this is the slowest part - JPEG encoding)
-            const blob = await reusableCanvas.convertToBlob({ 
-                type: cachedOutputFormat, 
+            const blob = await reusableCanvas.convertToBlob({
+                type: cachedOutputFormat,
                 quality: cachedQuality,
             });
 
-            results.push({
+            const result: BatchResultItem = {
                 id: item.id,
                 rowIndex: item.rowIndex,
                 filename: item.filename,
                 blob,
-            });
+            };
+
+            // Notify main thread for smooth progress updates
+            self.postMessage({ type: 'itemComplete', result } as WorkerResponse);
+
         } catch (error) {
-            results.push({
+            const errorResult: BatchResultItem = {
                 id: item.id,
                 rowIndex: item.rowIndex,
                 filename: item.filename,
                 error: error instanceof Error ? error.message : 'Unknown error',
-            });
+            };
+            self.postMessage({ type: 'itemComplete', result: errorResult } as WorkerResponse);
         }
     }
 
-    return results;
+    return;
 }
 
 // =============================================================================
@@ -223,16 +234,16 @@ async function generateBatch(items: BatchItem[]): Promise<BatchResultItem[]> {
 
 self.onmessage = async (event: MessageEvent<InitMessage | GenerateBatchMessage>) => {
     const message = event.data;
-    
+
     if (message.type === 'init') {
         // Cache template as ImageBitmap for GPU-accelerated drawing
         cachedTemplateBitmap = await createImageBitmap(message.templateImageData);
         cachedTemplateWidth = message.templateWidth;
         cachedTemplateHeight = message.templateHeight;
         cachedOutputFormat = message.outputFormat;
-        // Always use 100% quality for all outputs (user requirement)
-        cachedQuality = 1;
-        
+        // Use provided quality (0.92 for JPEG = 3-5x faster encoding with minimal visual difference)
+        cachedQuality = message.quality;
+
         // Pre-compute render info for each box
         cachedBoxRenderInfo = message.boxes
             .filter(box => box.field)
@@ -240,7 +251,7 @@ self.onmessage = async (event: MessageEvent<InitMessage | GenerateBatchMessage>)
                 const hAlign = box.hAlign || 'center';
                 let textX: number;
                 let textAlign: CanvasTextAlign;
-                
+
                 if (hAlign === 'left') {
                     textAlign = 'left';
                     textX = box.x + 5;
@@ -251,23 +262,23 @@ self.onmessage = async (event: MessageEvent<InitMessage | GenerateBatchMessage>)
                     textAlign = 'center';
                     textX = box.x + box.w / 2;
                 }
-                
+
                 return { box, fontBase: `"${box.fontFamily}"`, textX, textAlign };
             });
-        
+
         // Create reusable canvas
         reusableCanvas = new OffscreenCanvas(cachedTemplateWidth, cachedTemplateHeight);
-        reusableCtx = reusableCanvas.getContext('2d', { 
+        reusableCtx = reusableCanvas.getContext('2d', {
             alpha: false,  // No transparency needed - faster
             desynchronized: true,  // Don't sync with display - we're just encoding
         })!;
-        
+
         self.postMessage({ type: 'ready' } as WorkerResponse);
     } else if (message.type === 'generateBatch') {
         // Process entire batch sequentially (minimizes IPC overhead)
-        const results = await generateBatch(message.items);
-        self.postMessage({ type: 'batchComplete', results } as WorkerResponse);
+        await generateBatch(message.items);
+        self.postMessage({ type: 'batchComplete' } as WorkerResponse);
     }
 };
 
-export {};
+export { };

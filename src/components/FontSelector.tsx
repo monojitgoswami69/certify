@@ -10,13 +10,13 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Search, X, ChevronDown, Check, Loader2 } from 'lucide-react';
 import type { FontCategory } from '../types';
-import { 
-    loadGoogleFont, 
-    isFontLoaded, 
+import {
+    loadGoogleFont,
+    isFontLoaded,
     searchFonts,
     initializeGoogleFonts,
     getAllGoogleFonts,
-    type GoogleFont 
+    type GoogleFont
 } from '../lib/googleFonts';
 
 // =============================================================================
@@ -84,18 +84,18 @@ function FontOption({ font, isSelected, isLoading, onSelect, onHover, style }: F
             style={style}
             className={`
                 absolute w-full px-3 text-left flex items-center justify-between gap-2
-                ${isSelected 
-                    ? 'bg-primary-100 text-primary-700' 
+                ${isSelected
+                    ? 'bg-primary-100 text-primary-700'
                     : 'hover:bg-slate-100 text-slate-700'}
             `}
         >
-            <span 
+            <span
                 className="text-sm truncate flex-1"
                 style={{ fontFamily: `"${font.family}", system-ui` }}
             >
                 {font.family}
             </span>
-            
+
             <div className="flex items-center gap-1.5 flex-shrink-0">
                 <span className="text-[10px] text-slate-400 uppercase tracking-wide">
                     {CATEGORY_LABELS[font.category] || font.category}
@@ -119,11 +119,10 @@ export function FontSelector({ value, onChange, onPreview, className = '' }: Fon
     const [search, setSearch] = useState('');
     const [category, setCategory] = useState<FontCategory | 'all'>('all');
     const [loadingFont, setLoadingFont] = useState<string | null>(null);
-    const [selectedFontLoaded, setSelectedFontLoaded] = useState(isFontLoaded(value));
     const [isLoadingFontList, setIsLoadingFontList] = useState(true);
     const [availableFonts, setAvailableFonts] = useState<GoogleFont[]>(getAllGoogleFonts());
     const [scrollTop, setScrollTop] = useState(0);
-    
+
     const containerRef = useRef<HTMLDivElement>(null);
     const searchInputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
@@ -131,14 +130,14 @@ export function FontSelector({ value, onChange, onPreview, className = '' }: Fon
     // Initialize Google Fonts list
     useEffect(() => {
         let cancelled = false;
-        
+
         initializeGoogleFonts().then((fonts) => {
             if (!cancelled) {
                 setAvailableFonts(fonts);
                 setIsLoadingFontList(false);
             }
         });
-        
+
         return () => { cancelled = true; };
     }, []);
 
@@ -146,22 +145,21 @@ export function FontSelector({ value, onChange, onPreview, className = '' }: Fon
     useEffect(() => {
         if (value) {
             loadGoogleFont(value);
-            setSelectedFontLoaded(true);
         }
     }, [value]);
 
     // Filter fonts
     const filteredFonts = useMemo(() => {
         let fonts = availableFonts;
-        
+
         if (category !== 'all') {
             fonts = fonts.filter(f => f.category === category);
         }
-        
+
         if (search.trim()) {
             fonts = searchFonts(search, fonts);
         }
-        
+
         return fonts;
     }, [search, category, availableFonts]);
 
@@ -184,20 +182,34 @@ export function FontSelector({ value, onChange, onPreview, className = '' }: Fon
         if (isOpen && value && listRef.current) {
             const selectedIndex = filteredFonts.findIndex(f => f.family === value);
             if (selectedIndex >= 0) {
-                const scrollPos = Math.max(0, (selectedIndex - Math.floor(VISIBLE_ITEMS / 2)) * ITEM_HEIGHT);
-                listRef.current.scrollTop = scrollPos;
-                setScrollTop(scrollPos);
+                // Use requestAnimationFrame to ensure DOM is ready
+                requestAnimationFrame(() => {
+                    if (listRef.current) {
+                        const scrollPos = Math.max(0, (selectedIndex - Math.floor(VISIBLE_ITEMS / 2)) * ITEM_HEIGHT);
+                        listRef.current.scrollTop = scrollPos;
+                        setScrollTop(scrollPos);
+                    }
+                });
             }
         }
-    }, [isOpen, value, filteredFonts]);
-    
-    // Reset scroll on filter change
-    useEffect(() => {
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen]); // Only run when isOpen changes to true
+
+    const handleCategoryChange = (newCategory: FontCategory | 'all') => {
+        setCategory(newCategory);
         if (listRef.current) {
             listRef.current.scrollTop = 0;
             setScrollTop(0);
         }
-    }, [category, search]);
+    };
+
+    const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setSearch(e.target.value);
+        if (listRef.current) {
+            listRef.current.scrollTop = 0;
+            setScrollTop(0);
+        }
+    };
 
     const handleSelect = useCallback((font: GoogleFont) => {
         setLoadingFont(font.family);
@@ -267,7 +279,7 @@ export function FontSelector({ value, onChange, onPreview, className = '' }: Fon
                     )}
                 </div>
             </div>
-            
+
             {/* Trigger Button */}
             <button
                 type="button"
@@ -276,9 +288,9 @@ export function FontSelector({ value, onChange, onPreview, className = '' }: Fon
                     focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400
                     flex items-center justify-between gap-2 hover:border-slate-300 transition-colors"
             >
-                <span 
+                <span
                     className="flex-1 truncate"
-                    style={{ fontFamily: selectedFontLoaded && value ? `"${value}", system-ui` : 'inherit' }}
+                    style={{ fontFamily: isFontLoaded(value) && value ? `"${value}", system-ui` : 'inherit' }}
                 >
                     {value || 'Select font...'}
                 </span>
@@ -287,7 +299,7 @@ export function FontSelector({ value, onChange, onPreview, className = '' }: Fon
 
             {/* Dropdown */}
             {isOpen && (
-                <div 
+                <div
                     className="absolute z-[100] left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden"
                     onKeyDown={handleKeyDown}
                     onMouseLeave={handleMouseLeave}
@@ -300,7 +312,7 @@ export function FontSelector({ value, onChange, onPreview, className = '' }: Fon
                                 ref={searchInputRef}
                                 type="text"
                                 value={search}
-                                onChange={(e) => setSearch(e.target.value)}
+                                onChange={handleSearchChange}
                                 placeholder="Search fonts..."
                                 className="w-full pl-8 pr-8 py-1.5 text-sm border border-slate-200 rounded-md
                                     focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
@@ -324,11 +336,11 @@ export function FontSelector({ value, onChange, onPreview, className = '' }: Fon
                                 <button
                                     key={cat.value}
                                     type="button"
-                                    onClick={() => setCategory(cat.value)}
+                                    onClick={() => handleCategoryChange(cat.value)}
                                     className={`
                                         px-2 py-0.5 text-xs font-medium rounded transition-colors
-                                        ${category === cat.value 
-                                            ? 'bg-primary-600 text-white' 
+                                        ${category === cat.value
+                                            ? 'bg-primary-600 text-white'
                                             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}
                                     `}
                                 >
@@ -339,8 +351,8 @@ export function FontSelector({ value, onChange, onPreview, className = '' }: Fon
                     </div>
 
                     {/* Font List */}
-                    <div 
-                        ref={listRef} 
+                    <div
+                        ref={listRef}
                         className="overflow-y-auto"
                         style={{ height: listHeight }}
                         onScroll={handleScroll}

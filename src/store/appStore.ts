@@ -56,15 +56,15 @@ interface AppStore {
     // Preview State
     previewEnabled: boolean;
     setPreviewEnabled: (enabled: boolean) => void;
-    
+
     // Worker count for parallel generation (1 = single, 2+ = parallel)
     workerCount: number;
     setWorkerCount: (count: number) => void;
-    
+
     // Generation status for UI coordination
     generationStatus: 'idle' | 'running' | 'completed';
     setGenerationStatus: (status: 'idle' | 'running' | 'completed') => void;
-    
+
     // Font preview for hover effect (doesn't change actual box value)
     fontPreview: { boxId: string; fontFamily: string } | null;
     setFontPreview: (preview: { boxId: string; fontFamily: string } | null) => void;
@@ -76,6 +76,10 @@ interface AppStore {
     // Fonts
     fonts: Font[];
     setFonts: (fonts: Font[]) => void;
+
+    // Output Formats
+    outputFormats: ('png' | 'jpg' | 'webp' | 'pdf')[];
+    setOutputFormats: (formats: ('png' | 'jpg' | 'webp' | 'pdf')[]) => void;
 
     // Reset Actions
     reset: () => void;
@@ -104,6 +108,7 @@ const initialState = {
     fontPreview: null as { boxId: string; fontFamily: string } | null,
     error: null,
     fonts: [] as Font[],
+    outputFormats: ['jpg'] as ('png' | 'jpg' | 'webp' | 'pdf')[],
 };
 
 // =============================================================================
@@ -165,10 +170,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     setDisplayScale: (displayScale) => set({ displayScale }),
 
     // CSV Data Actions
-    setCsvData: (file, headers, data) => set({ 
-        csvFile: file, 
-        csvHeaders: headers, 
-        csvData: data 
+    setCsvData: (file, headers, data) => set({
+        csvFile: file,
+        csvHeaders: headers,
+        csvData: data
     }),
 
     clearCsvData: () => set({
@@ -187,6 +192,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     setWorkerCount: (workerCount) => set({ workerCount }),
     setGenerationStatus: (generationStatus) => set({ generationStatus }),
     setFontPreview: (fontPreview) => set({ fontPreview }),
+
+    // Output Formats Actions
+    setOutputFormats: (outputFormats) => set({ outputFormats }),
 
     // UI State
     setError: (error) => set({ error }),
