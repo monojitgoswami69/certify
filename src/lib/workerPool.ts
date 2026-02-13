@@ -1,14 +1,20 @@
 /**
  * Worker Pool for Parallel Certificate Generation
  * 
- * Divides work equally among workers. Each worker processes its batch sequentially.
- * Uses 100% of CPU cores for maximum performance.
+ * ARCHITECTURE: Chunk-based processing with synchronization barriers.
  * 
- * OPTIMIZATION:
- * - Batch-based processing (fewer IPC calls)
- * - Equal division of work
- * - No PDF generation
- * - Output format matches template
+ * The pool is designed to be called multiple times (once per ZIP chunk).
+ * Workers stay warm between calls — template data is cached in each worker.
+ * 
+ * FLOW:
+ *   1. initialize() — Create workers, send template ONCE
+ *   2. processChunk() — Send N tasks, wait for ALL to complete, return
+ *   3. (caller zips and downloads while workers are IDLE)
+ *   4. processChunk() — Next chunk...
+ *   5. terminate() — Kill all workers
+ * 
+ * This ensures workers are NEVER running during ZIP packaging,
+ * eliminating CPU contention and memory pressure.
  */
 
 import type { TextBox, CsvRow } from '../types';
@@ -32,49 +38,51 @@ export interface WorkerResult {
     error?: string;
 }
 
-interface WorkerState {
-    worker: Worker;
-    ready: boolean;
-}
-
 // =============================================================================
 // Worker Pool Class
 // =============================================================================
 
 export class CertificateWorkerPool {
-    private workerStates: WorkerState[] = [];
+    private workers: Worker[] = [];
     private outputFormat: string = 'image/jpeg';
     private fileExtension: string = 'jpg';
 
     /**
-     * Get optimal number of workers (100% of CPU cores, minimum 2, maximum 32)
+     * Pending resolve callbacks for processChunk.
+     * terminate() calls these to unblock awaiting code.
+     */
+    private pendingResolves: Array<() => void> = [];
+
+    /**
+     * Get optimal number of workers.
+     * Capped to HALF of reported cores because the browser's
+     * JPEG encoding thread pool saturates at ~half the logical processors.
+     * Extra workers beyond that just queue up waiting for encoding slots.
      */
     static getOptimalWorkerCount(): number {
         const cores = navigator.hardwareConcurrency || 4;
-        return Math.max(2, Math.min(cores, 32));
+        return Math.max(2, Math.min(Math.floor(cores / 2), 16));
     }
 
     /**
-     * Initialize the worker pool - sends template to each worker ONCE
+     * Initialize the worker pool — sends template to each worker ONCE.
+     * Workers remain warm and reusable across multiple processChunk() calls.
+     * 
      * @param maxWorkers - If 1, uses single worker. If undefined, uses all cores.
      */
     async initialize(
         templateImage: HTMLImageElement,
         boxes: TextBox[],
-        format: 'png' | 'jpg' | 'webp' | 'pdf',
+        format: 'png' | 'jpg' | 'pdf',
         maxWorkers?: number
     ): Promise<number> {
         // Determine output format and extension
         if (format === 'png') {
             this.outputFormat = 'image/png';
             this.fileExtension = 'png';
-        } else if (format === 'webp') {
-            this.outputFormat = 'image/webp';
-            this.fileExtension = 'webp';
         } else if (format === 'pdf') {
-            // For PDF we generate high quality JPEG first
             this.outputFormat = 'image/jpeg';
-            this.fileExtension = 'pdf'; // We'll convert to PDF on main thread or just use this as a marker
+            this.fileExtension = 'pdf';
         } else {
             this.outputFormat = 'image/jpeg';
             this.fileExtension = 'jpg';
@@ -91,11 +99,11 @@ export class CertificateWorkerPool {
         const templateWidth = canvas.width;
         const templateHeight = canvas.height;
 
-        // Clean up temporary canvas
+        // Release temp canvas
         canvas.width = 0;
         canvas.height = 0;
 
-        // Create worker pool - use specified count or optimal
+        // Create workers
         const workerCount = maxWorkers ?? CertificateWorkerPool.getOptimalWorkerCount();
         const initPromises: Promise<void>[] = [];
 
@@ -105,38 +113,37 @@ export class CertificateWorkerPool {
                 { type: 'module' }
             );
 
-            const state: WorkerState = {
-                worker,
-                ready: false,
-            };
-
             const initPromise = new Promise<void>((resolve, reject) => {
                 const timeout = setTimeout(() => {
                     reject(new Error(`Worker ${i} initialization timed out`));
-                }, 10000); // 10 second timeout
+                }, 10000);
 
-                const initHandler = (event: MessageEvent) => {
+                const onReady = (event: MessageEvent) => {
                     if (event.data.type === 'ready') {
                         clearTimeout(timeout);
-                        state.ready = true;
-                        worker.removeEventListener('message', initHandler);
+                        worker.removeEventListener('message', onReady);
+                        worker.removeEventListener('error', onError);
                         resolve();
                     }
                 };
 
-                const errorHandler = (event: ErrorEvent) => {
+                const onError = (event: ErrorEvent) => {
                     clearTimeout(timeout);
+                    worker.removeEventListener('message', onReady);
                     reject(new Error(`Worker ${i} error: ${event.message}`));
                 };
 
-                worker.addEventListener('message', initHandler);
-                worker.addEventListener('error', errorHandler);
+                worker.addEventListener('message', onReady);
+                worker.addEventListener('error', onError);
+
+                // Track this resolve so terminate() can unblock it
+                this.pendingResolves.push(resolve);
             });
 
-            this.workerStates.push(state);
+            this.workers.push(worker);
             initPromises.push(initPromise);
 
-            // Send template data ONCE to this worker
+            // Send template data (each worker gets its own copy)
             const imageDataCopy = new ImageData(
                 new Uint8ClampedArray(templateImageData.data),
                 templateWidth,
@@ -155,6 +162,7 @@ export class CertificateWorkerPool {
         }
 
         await Promise.all(initPromises);
+        this.pendingResolves = [];
         return workerCount;
     }
 
@@ -166,14 +174,27 @@ export class CertificateWorkerPool {
     }
 
     /**
-     * Process all tasks by dividing equally among workers
-     * Each worker processes its batch sequentially
+     * Process a chunk of tasks across all workers, then RETURN.
+     * 
+     * This is the core method. It divides the given tasks equally among
+     * workers, processes them in parallel, and resolves ONLY when every
+     * worker has completed its share. After this method resolves,
+     * ALL workers are IDLE — safe for ZIP packaging.
+     * 
+     * Designed to be called repeatedly (once per ZIP chunk) on the same pool.
+     * Workers stay warm between calls.
+     * 
+     * @param tasks - The subset of tasks to process in this chunk
+     * @param onResult - Called synchronously for each completed certificate.
+     *                    Receives the result and progress counters for this chunk.
      */
-    async processBatch(
+    async processChunk(
         tasks: WorkerTask[],
-        onProgress?: (completed: number, total: number, latestResult?: WorkerResult) => void | Promise<void>
+        onResult?: (result: WorkerResult, completedInChunk: number, totalInChunk: number) => void
     ): Promise<void> {
-        const workerCount = this.workerStates.length;
+        if (tasks.length === 0) return;
+
+        const workerCount = this.workers.length;
         const tasksPerWorker = Math.ceil(tasks.length / workerCount);
 
         // Divide tasks equally among workers
@@ -189,37 +210,42 @@ export class CertificateWorkerPool {
         let completedCount = 0;
         const totalCount = tasks.length;
 
-        // Create promises for each worker's batch
-        const batchPromises = workerBatches.map((batch, workerIndex) => {
+        // Launch all workers in parallel, collect results as they arrive
+        const workerPromises = workerBatches.map((batch, workerIndex) => {
             return new Promise<void>((resolve) => {
-                const state = this.workerStates[workerIndex];
-                let progressQueue = Promise.resolve();
+                const worker = this.workers[workerIndex];
+
+                // Track this resolve so terminate() can unblock it
+                this.pendingResolves.push(resolve);
 
                 const handler = (event: MessageEvent) => {
                     if (event.data.type === 'itemComplete') {
                         const r = event.data.result;
-                        const result: WorkerResult = {
-                            id: r.id,
-                            rowIndex: r.rowIndex,
-                            filename: r.filename,
-                            blob: r.blob,
-                            error: r.error,
-                        };
-
                         completedCount++;
-                        progressQueue = progressQueue
-                            .then(() => onProgress?.(completedCount, totalCount, result))
-                            .catch(() => undefined);
+
+                        // Call result handler synchronously — no promise queue,
+                        // no async backlog. The caller adds to JSZip (sync).
+                        onResult?.(
+                            {
+                                id: r.id,
+                                rowIndex: r.rowIndex,
+                                filename: r.filename,
+                                blob: r.blob,
+                                error: r.error,
+                            },
+                            completedCount,
+                            totalCount
+                        );
                     } else if (event.data.type === 'batchComplete') {
-                        state.worker.removeEventListener('message', handler);
-                        void progressQueue.finally(resolve);
+                        worker.removeEventListener('message', handler);
+                        resolve();
                     }
                 };
 
-                state.worker.addEventListener('message', handler);
+                worker.addEventListener('message', handler);
 
-                // Send batch to worker
-                state.worker.postMessage({
+                // Send this chunk's batch to the worker
+                worker.postMessage({
                     type: 'generateBatch',
                     items: batch.map(t => ({
                         id: t.id,
@@ -231,26 +257,95 @@ export class CertificateWorkerPool {
             });
         });
 
-        await Promise.all(batchPromises);
+        // SYNCHRONIZATION BARRIER: Wait for ALL workers to complete
+        await Promise.all(workerPromises);
+
+        // Clear pending resolves (all completed normally)
+        this.pendingResolves = [];
     }
 
     /**
-     * Get current pool statistics
+     * Generate a single certificate for size probing.
+     * Uses one worker, waits for completion.
      */
-    getStats(): { total: number; ready: number } {
-        return {
-            total: this.workerStates.length,
-            ready: this.workerStates.filter(s => s.ready).length,
-        };
+    async generateSingle(task: WorkerTask): Promise<WorkerResult> {
+        if (this.workers.length === 0) {
+            throw new Error('Worker pool not initialized');
+        }
+
+        const worker = this.workers[0];
+
+        return new Promise<WorkerResult>((resolve) => {
+            const handler = (event: MessageEvent) => {
+                if (event.data.type === 'itemComplete') {
+                    const r = event.data.result;
+                    const result: WorkerResult = {
+                        id: r.id,
+                        rowIndex: r.rowIndex,
+                        filename: r.filename,
+                        blob: r.blob,
+                        error: r.error,
+                    };
+                    worker.removeEventListener('message', handler);
+
+                    // Wait for batchComplete before resolving
+                    const batchHandler = (e: MessageEvent) => {
+                        if (e.data.type === 'batchComplete') {
+                            worker.removeEventListener('message', batchHandler);
+                            resolve(result);
+                        }
+                    };
+                    worker.addEventListener('message', batchHandler);
+                } else if (event.data.type === 'batchComplete') {
+                    worker.removeEventListener('message', handler);
+                    resolve({
+                        id: task.id,
+                        rowIndex: task.rowIndex,
+                        filename: task.filename,
+                        error: 'Probe generation failed',
+                    });
+                }
+            };
+
+            worker.addEventListener('message', handler);
+
+            // Track this resolve so terminate() can unblock it
+            this.pendingResolves.push(resolve as any);
+
+            worker.postMessage({
+                type: 'generateBatch',
+                items: [{
+                    id: task.id,
+                    rowIndex: task.rowIndex,
+                    row: task.row,
+                    filename: task.filename,
+                }],
+            });
+        });
     }
 
     /**
-     * Terminate all workers and clean up
+     * Get current pool size
+     */
+    getWorkerCount(): number {
+        return this.workers.length;
+    }
+
+    /**
+     * Terminate all workers and release resources.
+     * Also resolves any pending processChunk promises to unblock awaiting code.
      */
     terminate(): void {
-        for (const state of this.workerStates) {
-            state.worker.terminate();
+        // Resolve pending processChunk promises FIRST (unblocks generateBatch)
+        for (const resolve of this.pendingResolves) {
+            resolve();
         }
-        this.workerStates = [];
+        this.pendingResolves = [];
+
+        // Now kill all workers
+        for (const worker of this.workers) {
+            worker.terminate();
+        }
+        this.workers = [];
     }
 }

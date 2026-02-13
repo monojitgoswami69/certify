@@ -51,23 +51,36 @@ function findFittingFontSize(
     maxFontSize: number,
     fontFamily: string
 ): number {
-    let fontSize = maxFontSize;
     const minFontSize = 10;
     const padding = 10;
+    const maxW = boxW - padding;
+    const maxH = boxH - padding;
+    const fontBase = `"${fontFamily}"`;
 
-    while (fontSize >= minFontSize) {
-        ctx.font = `${fontSize}px "${fontFamily}"`;
-        const metrics = ctx.measureText(text);
-        const textWidth = metrics.width;
-        const textHeight = fontSize * 1.2;
-
-        if (textWidth <= boxW - padding && textHeight <= boxH - padding) {
-            return fontSize;
-        }
-        fontSize -= 2;
+    // Early exit: max font size already fits
+    ctx.font = `${maxFontSize}px ${fontBase}`;
+    if (ctx.measureText(text).width <= maxW && maxFontSize * 1.2 <= maxH) {
+        return maxFontSize;
     }
 
-    return minFontSize;
+    // Binary search for the LARGEST font size that fits
+    let low = minFontSize;
+    let high = maxFontSize;
+    let result = minFontSize;
+
+    while (low <= high) {
+        const mid = (low + high) >> 1;
+        ctx.font = `${mid}px ${fontBase}`;
+
+        if (ctx.measureText(text).width <= maxW && mid * 1.2 <= maxH) {
+            result = mid;
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    return result;
 }
 
 /**

@@ -78,8 +78,8 @@ interface AppStore {
     setFonts: (fonts: Font[]) => void;
 
     // Output Formats
-    outputFormats: ('png' | 'jpg' | 'webp' | 'pdf')[];
-    setOutputFormats: (formats: ('png' | 'jpg' | 'webp' | 'pdf')[]) => void;
+    outputFormats: ('png' | 'jpg' | 'pdf')[];
+    setOutputFormats: (formats: ('png' | 'jpg' | 'pdf')[]) => void;
 
     // Reset Actions
     reset: () => void;
@@ -108,7 +108,7 @@ const initialState = {
     fontPreview: null as { boxId: string; fontFamily: string } | null,
     error: null,
     fonts: [] as Font[],
-    outputFormats: ['jpg'] as ('png' | 'jpg' | 'webp' | 'pdf')[],
+    outputFormats: ['jpg'] as ('png' | 'jpg' | 'pdf')[],
 };
 
 // =============================================================================
