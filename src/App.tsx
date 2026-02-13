@@ -78,9 +78,9 @@ export default function App() {
     const [isMobile, setIsMobile] = useState(false);
     const [currentView, setCurrentView] = useState<'landing' | 'editor'>('landing');
 
-    // Get max workers based on CPU cores
+    // Get max workers — capped to half of reported cores (browser JPEG pool saturates at ~half)
     const maxWorkers = typeof navigator !== 'undefined'
-        ? Math.max(2, Math.min(navigator.hardwareConcurrency || 4, 32))
+        ? Math.max(2, Math.min(Math.floor((navigator.hardwareConcurrency || 4) / 2), 16))
         : 4;
 
     // Check screen size for mobile detection
@@ -240,8 +240,8 @@ export default function App() {
                     {/* Format Selector */}
                     <div className="mb-4 p-3 bg-slate-50 rounded-2xl border border-slate-100">
                         <label className="block text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-widest text-center">Output Formats</label>
-                        <div className="grid grid-cols-4 gap-1.5">
-                            {['png', 'jpg', 'webp', 'pdf'].map((fmt) => {
+                        <div className="grid grid-cols-3 gap-1.5">
+                            {['png', 'jpg', 'pdf'].map((fmt) => {
                                 const isSelected = outputFormats.includes(fmt as any);
                                 return (
                                     <button

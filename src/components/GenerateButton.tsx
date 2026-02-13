@@ -24,10 +24,11 @@ import type { CsvRow } from '../types';
 // =============================================================================
 
 /**
- * Maximum certificates per ZIP file to avoid memory issues.
- * Larger chunks reduce number of downloads but increase peak memory during packaging.
+ * Target maximum size per ZIP file (1GB).
+ * Used only during pre-generation probe to calculate certsPerZip.
+ * NOT checked per-certificate during mass generation.
  */
-const MAX_BATCH_SIZE_BYTES = 1024 * 1024 * 1024; // 1GB per ZIP part
+const TARGET_ZIP_SIZE_BYTES = 1024 * 1024 * 1024; // 1GB per ZIP part
 
 // =============================================================================
 // Types
@@ -88,6 +89,7 @@ export function GenerateButton() {
         workerCount: configuredWorkerCount,
         outputFormats,
         setError,
+        generationStatus,
         setGenerationStatus,
     } = useAppStore();
 
@@ -118,66 +120,42 @@ export function GenerateButton() {
 
     /**
      * Generate certificates in PARALLEL using Web Workers.
-     * Uses Size-Based Batching (1GB per ZIP).
+     * 
+     * ARCHITECTURE: Chunk-based processing with synchronization barriers.
+     * 
+     * 1. Probe: Generate a single real certificate → measure size
+     * 2. Calculate certsPerZip = floor(1GB / certSize), rounded down to nearest 500
+     * 3. For each chunk of certsPerZip tasks:
+     *    a. GENERATE: Send chunk to workers → ALL workers process in parallel
+     *    b. BARRIER:  processChunk() resolves → ALL workers are now IDLE
+     *    c. ZIP:      Package results into ZIP (workers idle, no CPU contention)
+     *    d. DOWNLOAD: Trigger browser download
+     *    e. GC:       Release all references, pause for garbage collection
+     * 
+     * This guarantees:
+     * - Workers NEVER run during ZIP packaging
+     * - Memory bounded to one chunk at a time
+     * - Deterministic ZIP count = ceil(total / certsPerZip)
      */
     const generateBatch = useCallback(async (
         records: Array<{ rowIndex: number; row: CsvRow }>,
         isRetry: boolean = false,
-        format: 'png' | 'jpg' | 'webp' | 'pdf' = 'jpg'
+        format: 'png' | 'jpg' | 'pdf' = 'jpg'
     ) => {
-        if (!templateImage || validBoxes.length === 0) return;
+        if (!templateImage || validBoxes.length === 0 || abortRef.current) return { generatedCount: 0, errors: [] };
 
-        abortRef.current = false;
+        const startTime = Date.now();
+        const errors: FailedRecord[] = [];
+        let totalGeneratedCount = 0;
+
         pauseRef.current = false;
         setLocalPaused(false);
         setError(null);
         setGenerationStatus('running');
 
-        const startTime = Date.now();
-        const errors: FailedRecord[] = [];
-        let totalGeneratedCount = 0;
-        let currentZipPart = 1;
-
-        // Phase 0: Estimate Certificate Size and Dynamic Batching
-        setProgress(prev => ({
-            ...prev,
-            currentName: `[${format.toUpperCase()}] Estimating resource requirements...`,
-            status: 'initializing',
-        }));
-
-        let certsPerZip = 2000; // Safe default
-        let estimatedSize = 500 * 1024; // Default 500KB
-
-        try {
-            const probeCanvas = document.createElement('canvas');
-            probeCanvas.width = templateImage.naturalWidth;
-            probeCanvas.height = templateImage.naturalHeight;
-            const probeCtx = probeCanvas.getContext('2d')!;
-            probeCtx.drawImage(templateImage, 0, 0);
-
-            // Format for JSZip depends on extension
-            const probeFormat = format === 'png' ? 'image/png' : (format === 'webp' ? 'image/webp' : 'image/jpeg');
-            const blob = await new Promise<Blob>((resolve) => probeCanvas.toBlob(b => resolve(b!), probeFormat, 0.92));
-            estimatedSize = blob.size;
-
-            // If PDF, wrap it roughly (PDF overhead is ~20% more than JPG)
-            if (format === 'pdf') estimatedSize *= 1.2;
-
-            // Calculate how many fit in target ZIP part size
-            const countPerPart = MAX_BATCH_SIZE_BYTES / estimatedSize;
-
-            // Round down to the nearest 500 for stable batching
-            certsPerZip = Math.max(500, Math.floor(countPerPart / 500) * 500);
-
-            // Cleanup
-            probeCanvas.width = 0;
-            probeCanvas.height = 0;
-        } catch (err) {
-            console.warn('Size estimation failed, using default batching', err);
-        }
-
-        // Calculate ZIP parts needed based on dynamic batch size
-        const totalZipParts = Math.ceil(records.length / certsPerZip);
+        // =====================================================================
+        // PHASE 0: Load fonts
+        // =====================================================================
         setProgress({
             current: 0,
             total: records.length,
@@ -195,7 +173,9 @@ export function GenerateButton() {
             await loadFont(font);
         }
 
-        // Phase 2: Initialize worker pool
+        // =====================================================================
+        // PHASE 1: Initialize worker pool
+        // =====================================================================
         setProgress(prev => ({
             ...prev,
             currentName: `[${format.toUpperCase()}] Initializing parallel workers...`,
@@ -209,7 +189,6 @@ export function GenerateButton() {
         try {
             workerPool = new CertificateWorkerPool();
             workerPoolRef.current = workerPool;
-            // Use the configured worker count from settings
             workerCount = await workerPool.initialize(templateImage, validBoxes, format, configuredWorkerCount);
             fileExtension = workerPool.getFileExtension();
         } catch (err) {
@@ -217,33 +196,62 @@ export function GenerateButton() {
             setError(errorMsg);
             setProgress(DEFAULT_PROGRESS);
             setGenerationStatus('idle');
-            return;
+            return { generatedCount: 0, errors: [] };
         }
 
-        // Initialize progress with calculated total parts
-        setProgress({
-            current: 0,
-            total: records.length,
-            currentName: `[${format.toUpperCase()}] Using ${workerCount} parallel workers`,
-            status: 'generating',
-            errors: [],
-            generated: 0,
-            zipPart: 1,
-            totalZipParts,
+        if (abortRef.current) return { generatedCount: 0, errors: [] };
+
+        // =====================================================================
+        // PHASE 2: SPECIAL DETECTION TECHNIQUE — Probe single real certificate
+        // =====================================================================
+        setProgress(prev => ({
+            ...prev,
+            currentName: `[${format.toUpperCase()}] Probing certificate size...`,
+            status: 'initializing',
             workerCount,
-        });
+        }));
 
-        if (!isRetry) {
-            setLogs({ firstGenerated: new Date(), lastGenerated: null, totalElapsed: 0 });
+        let certsPerZip = 2000; // Safe default fallback
+
+        try {
+            const probeRecord = records[0];
+            const probeDisplayName = getFilenameBasis(probeRecord.row);
+            const probeTask = {
+                id: -1,
+                row: probeRecord.row,
+                rowIndex: probeRecord.rowIndex,
+                filename: sanitizeFilename(probeDisplayName),
+            };
+
+            const probeResult = await workerPool.generateSingle(probeTask);
+
+            if (probeResult.blob && !probeResult.error) {
+                let certSize = probeResult.blob.size;
+                if (format === 'pdf') certSize *= 1.2;
+
+                const rawCount = TARGET_ZIP_SIZE_BYTES / certSize;
+                certsPerZip = Math.max(500, Math.floor(rawCount / 500) * 500);
+
+                console.log(
+                    `[Probe] Single cert size: ${(certSize / 1024).toFixed(1)}KB | ` +
+                    `Raw count per 1GB: ${Math.floor(rawCount)} | ` +
+                    `Rounded to: ${certsPerZip}`
+                );
+
+                probeResult.blob = undefined;
+            } else {
+                console.warn('Probe failed, using default batch size');
+            }
+        } catch (err) {
+            console.warn('Size probe failed, using default batch size', err);
         }
 
-        // Prepare items for ZIP
-        let currentZip = new JSZip();
-        let currentZipFolder = currentZip.folder('certificates');
-        let currentZipSize = 0;
-        let chunkGeneratedCount = 0;
+        if (abortRef.current) return { generatedCount: 0, errors: [] };
 
-        const tasks = records.map((record, i) => {
+        // =====================================================================
+        // PHASE 3: Prepare all tasks
+        // =====================================================================
+        const allTasks = records.map((record, i) => {
             const displayName = getFilenameBasis(record.row);
             return {
                 id: i,
@@ -253,133 +261,283 @@ export function GenerateButton() {
             };
         });
 
-        // Create task lookup map for O(1) error handling
-        const taskMap = new Map(tasks.map(t => [t.id, t]));
+        const taskMap = new Map(allTasks.map(t => [t.id, t]));
+        const totalZipParts = Math.ceil(allTasks.length / certsPerZip);
 
-        // Helper to finalize and download a ZIP part
-        const finalizeZip = async () => {
-            if (chunkGeneratedCount === 0 || !currentZip) return;
+        if (!isRetry) {
+            setLogs({ firstGenerated: new Date(), lastGenerated: null, totalElapsed: 0 });
+        }
 
-            const zipFileName = totalZipParts > 1
-                ? `certificates_${format}_part${currentZipPart}_of_${totalZipParts}.zip`
-                : `certificates_${format}.zip`;
+        // =====================================================================
+        // PHASE 4: CHUNK-BASED GENERATION
+        //
+        // Each iteration processes exactly one ZIP's worth of certificates.
+        // Workers are IDLE during ZIP packaging — no concurrent generation.
+        // Memory is bounded to one chunk at a time.
+        // =====================================================================
+        for (let chunkIndex = 0; chunkIndex < totalZipParts; chunkIndex++) {
+            if (abortRef.current) break;
 
+            // --- Pause gate (between chunks) ---
+            while (pauseRef.current && !abortRef.current) {
+                await delay(200);
+            }
+            if (abortRef.current) break;
+
+            // Slice this chunk's tasks
+            const chunkStart = chunkIndex * certsPerZip;
+            const chunkEnd = Math.min(chunkStart + certsPerZip, allTasks.length);
+            const chunkTasks = allTasks.slice(chunkStart, chunkEnd);
+            const currentZipPart = chunkIndex + 1;
+
+            // Fresh JSZip for this chunk
+            let zip: JSZip | null = new JSZip();
+            const folder = zip.folder('certificates')!;
+            let chunkGeneratedCount = 0;
+
+            // Update UI: GENERATING
+            setProgress({
+                current: totalGeneratedCount,
+                total: records.length,
+                currentName: `[${format.toUpperCase()}] Batch ${currentZipPart}/${totalZipParts} — generating...`,
+                status: 'generating',
+                errors,
+                generated: totalGeneratedCount,
+                zipPart: currentZipPart,
+                totalZipParts,
+                workerCount,
+            });
+
+            let lastUpdate = Date.now();
+
+            // -----------------------------------------------------------------
+            // GENERATE: Send chunk to workers, collect results as they arrive.
+            // processChunk() resolves ONLY when ALL workers finish this chunk.
+            // -----------------------------------------------------------------
+            await workerPool.processChunk(chunkTasks, (result, completedInChunk, totalInChunk) => {
+                // Process successful result
+                if (result && !result.error && result.blob) {
+                    // For PDF format: store raw JPEG blob now, convert to PDF after chunk completes.
+                    // For image formats: store final blob directly.
+                    const ext = format === 'pdf' ? 'jpg' : fileExtension;
+                    folder.file(`${result.filename}.${ext}`, result.blob);
+                    result.blob = undefined; // Release — JSZip now owns the reference
+                    chunkGeneratedCount++;
+                    totalGeneratedCount++;
+                } else if (result?.error) {
+                    const task = taskMap.get(result.id);
+                    errors.push({
+                        rowIndex: result.rowIndex,
+                        name: result.filename,
+                        row: task?.row || {},
+                        error: result.error,
+                    });
+                }
+
+                // Throttle UI updates (every 100ms or on completion)
+                const now = Date.now();
+                if (now - lastUpdate > 100 || completedInChunk === totalInChunk) {
+                    lastUpdate = now;
+                    setProgress(prev => ({
+                        ...prev,
+                        current: totalGeneratedCount,
+                        generated: totalGeneratedCount,
+                        currentName: `[${format.toUpperCase()}] ${totalGeneratedCount}/${records.length} (batch ${currentZipPart}/${totalZipParts})`,
+                    }));
+                    setLogs(prev => ({
+                        ...prev,
+                        lastGenerated: new Date(),
+                        totalElapsed: now - startTime,
+                    }));
+                }
+            });
+
+            // -----------------------------------------------------------------
+            // BARRIER: processChunk() resolved — ALL workers are now IDLE.
+            // Safe to do CPU-intensive ZIP packaging without contention.
+            // -----------------------------------------------------------------
+
+            if (abortRef.current || chunkGeneratedCount === 0) {
+                zip = null;
+                continue;
+            }
+
+            // For PDF format: convert raw JPEG blobs to actual PDFs.
+            // This runs while workers are IDLE — no CPU contention.
+            if (format === 'pdf') {
+                setProgress(prev => ({
+                    ...prev,
+                    currentName: `[${format.toUpperCase()}] Converting to PDF (batch ${currentZipPart}/${totalZipParts})...`,
+                }));
+
+                const isLandscape = templateImage.naturalWidth > templateImage.naturalHeight;
+                const certFolder = zip.folder('certificates')!;
+
+                // Find all raw JPEG files stored during generation
+                const jpgEntries = Object.keys(certFolder.files)
+                    .filter(name => name.startsWith('certificates/') && name.endsWith('.jpg'));
+
+                for (const fullPath of jpgEntries) {
+                    if (abortRef.current) break;
+
+                    const arrayBuffer = await certFolder.files[fullPath].async('arraybuffer');
+                    const pdf = new jsPDF({
+                        orientation: isLandscape ? 'landscape' : 'portrait',
+                        unit: 'px',
+                        format: [templateImage.naturalWidth, templateImage.naturalHeight],
+                    });
+                    pdf.addImage(
+                        new Uint8Array(arrayBuffer),
+                        'JPEG', 0, 0,
+                        templateImage.naturalWidth,
+                        templateImage.naturalHeight
+                    );
+
+                    // Replace .jpg with .pdf in the ZIP
+                    const pdfPath = fullPath.replace(/\.jpg$/, '.pdf').replace('certificates/', '');
+                    certFolder.file(pdfPath, pdf.output('blob'));
+                    certFolder.remove(fullPath.replace('certificates/', ''));
+                }
+            }
+
+            // Update UI: ZIPPING
             setProgress(prev => ({
                 ...prev,
                 status: 'zipping',
-                currentName: `[${format.toUpperCase()}] Packaging Part ${currentZipPart}/${totalZipParts}...`,
+                currentName: `[${format.toUpperCase()}] Packaging batch ${currentZipPart}/${totalZipParts}...`,
             }));
 
+            // -----------------------------------------------------------------
+            // ZIP & DOWNLOAD: Package and trigger download
+            // -----------------------------------------------------------------
             try {
-                const zipBlob = await currentZip.generateAsync({
+                const zipBlob = await zip.generateAsync({
                     type: 'blob',
-                    compression: 'STORE',  // NO COMPRESSION (Level 0) - Fastest
+                    compression: 'STORE', // No compression — fastest
                     streamFiles: true,
                 });
+
+                const zipFileName = totalZipParts > 1
+                    ? `certificates_${format}_part${currentZipPart}_of_${totalZipParts}.zip`
+                    : `certificates_${format}.zip`;
+
                 downloadBlob(zipBlob, zipFileName);
-                await delay(300); // Give browser time to GC
             } catch {
                 setError(`Failed to create ZIP part ${currentZipPart}`);
             }
 
-            // Reset for next part - Critical for memory
-            currentZip = null as any;
-            currentZipFolder = null as any;
-            await delay(500); // Force pause for GC
-
-            currentZip = new JSZip();
-            currentZipFolder = currentZip.folder('certificates');
-            currentZipSize = 0;
-            chunkGeneratedCount = 0;
-            currentZipPart++;
-
-            setProgress(prev => ({ ...prev, status: 'generating', zipPart: currentZipPart }));
-        };
-
-        let lastUpdate = Date.now();
-
-        // INTERLEAVED PROCESSING: Process each result as it arrives to maximize throughput
-        await workerPool.processBatch(tasks, async (completed, total, latestResult) => {
-            const now = Date.now();
-
-            // 1. Process the latest result immediately (Interleaved)
-            if (latestResult && !latestResult.error && latestResult.blob && currentZipFolder) {
-                let finalBlob = latestResult.blob;
-                if (format === 'pdf') {
-                    const isLandscape = templateImage.naturalWidth > templateImage.naturalHeight;
-                    const pdf = new jsPDF({
-                        orientation: isLandscape ? 'landscape' : 'portrait',
-                        unit: 'px',
-                        format: [templateImage.naturalWidth, templateImage.naturalHeight]
-                    });
-                    const arrayBuffer = await latestResult.blob.arrayBuffer();
-                    pdf.addImage(new Uint8Array(arrayBuffer), 'JPEG', 0, 0, templateImage.naturalWidth, templateImage.naturalHeight);
-                    finalBlob = pdf.output('blob');
-                }
-
-                currentZipSize += finalBlob.size;
-                currentZipFolder.file(`${latestResult.filename}.${format === 'pdf' ? 'pdf' : fileExtension}`, finalBlob);
-                latestResult.blob = undefined;
-                chunkGeneratedCount++;
-                totalGeneratedCount++;
-
-                // Trigger dynamic split (based on count OR the 1GB size threshold)
-                // CRITICAL: Immediately finalize and release memory
-                if (chunkGeneratedCount >= certsPerZip || currentZipSize >= MAX_BATCH_SIZE_BYTES) {
-                    await finalizeZip();
-                }
-            } else if (latestResult?.error) {
-                const task = taskMap.get(latestResult.id);
-                errors.push({
-                    rowIndex: latestResult.rowIndex,
-                    name: latestResult.filename,
-                    row: task?.row || {},
-                    error: latestResult.error,
-                });
-            }
-
-            // 2. Throttle UI updates
-            if (now - lastUpdate > 100 || completed === total) {
-                lastUpdate = now;
-                setProgress(prev => ({
-                    ...prev,
-                    current: completed,
-                    generated: totalGeneratedCount,
-                    totalZipParts,
-                    currentName: `[${format.toUpperCase()}] ${completed} generated (${Math.round(currentZipSize / 1024 / 1024)}MB / 1GB batch)`,
-                }));
-                setLogs(prev => ({ ...prev, lastGenerated: new Date(), totalElapsed: now - startTime }));
-            }
-        });
-
-        // Final cleanup for any leftovers
-        if (!abortRef.current && chunkGeneratedCount > 0) {
-            await finalizeZip();
+            // -----------------------------------------------------------------
+            // GC: Release all references, pause for garbage collection
+            // -----------------------------------------------------------------
+            zip = null;
+            await delay(50);
         }
 
-        // Cleanup
+        // =====================================================================
+        // PHASE 5: Cleanup
+        // =====================================================================
         workerPool.terminate();
         workerPoolRef.current = null;
 
-        setProgress(prev => ({ ...prev, status: 'completed', totalZipParts: currentZipPart - 1 }));
-        setGenerationStatus('completed');
-        setRetryQueue(errors);
+        if (abortRef.current) return { generatedCount: 0, errors: [] };
 
+        setProgress(prev => ({
+            ...prev,
+            status: 'completed',
+            generated: totalGeneratedCount,
+            totalZipParts,
+        }));
+        // Note: generationStatus is now handled by the finally block in handleGenerate
+        setRetryQueue(errors);
         setLogs(prev => ({ ...prev, totalElapsed: Date.now() - startTime }));
+
+        return { generatedCount: totalGeneratedCount, errors };
     }, [templateImage, boxes, validBoxes, getFilenameBasis, setError, setGenerationStatus, configuredWorkerCount]);
 
     // Event handlers
-    const handleGenerate = async () => {
-        const records = csvData.map((row, i) => ({ rowIndex: i, row }));
-        for (const format of outputFormats) {
-            if (abortRef.current) break;
-            await generateBatch(records, false, format);
+    const runGeneration = async (records: Array<{ rowIndex: number; row: CsvRow }>, isRetry: boolean = false) => {
+        if (generationStatus === 'running') return;
+
+        const startTime = Date.now();
+        let cumulativeGenerated = 0;
+        let cumulativeErrors: FailedRecord[] = [];
+
+        try {
+            // Start clean run
+            abortRef.current = false;
+            setGenerationStatus('running');
+
+            for (const format of outputFormats) {
+                if (abortRef.current) break;
+                const result = await generateBatch(records, isRetry, format);
+                cumulativeGenerated += result.generatedCount;
+                cumulativeErrors = [...cumulativeErrors, ...result.errors];
+            }
+        } catch (err) {
+            console.error('Generation process failed:', err);
+            setError(err instanceof Error ? err.message : 'Generation failed unexpectedly');
+        } finally {
+            if (!abortRef.current) {
+                // Deduplicate errors by rowIndex (a row failing in multiple formats only needs one retry entry)
+                const uniqueErrorsMap = new Map<number, FailedRecord>();
+                for (const err of cumulativeErrors) {
+                    if (!uniqueErrorsMap.has(err.rowIndex)) {
+                        uniqueErrorsMap.set(err.rowIndex, err);
+                    }
+                }
+                const uniqueErrors = Array.from(uniqueErrorsMap.values());
+
+                setProgress(prev => ({
+                    ...prev,
+                    status: 'completed',
+                    generated: cumulativeGenerated,
+                    errors: uniqueErrors,
+                }));
+                setRetryQueue(uniqueErrors);
+                setGenerationStatus(uniqueErrors.length > 0 ? 'idle' : 'completed');
+                setLogs(prev => ({ ...prev, totalElapsed: Date.now() - startTime }));
+            } else {
+                setGenerationStatus('idle');
+                if (progress.status !== 'idle') {
+                    setProgress(DEFAULT_PROGRESS);
+                }
+            }
         }
+    };
+
+    const handleGenerate = async () => {
+        // ── DEDUPLICATION: Only keep unique rows based on PRINTED fields ──
+        const printedFields = validBoxes.map(b => b.field);
+        const seen = new Set<string>();
+        const deduplicatedRecords: Array<{ rowIndex: number; row: CsvRow }> = [];
+
+        for (let i = 0; i < csvData.length; i++) {
+            const row = csvData[i];
+            const fingerprint = printedFields.map(f => row[f] ?? '').join('\x00');
+            if (!seen.has(fingerprint)) {
+                seen.add(fingerprint);
+                const strippedRow: CsvRow = {};
+                for (const field of printedFields) {
+                    strippedRow[field] = row[field] ?? '';
+                }
+                deduplicatedRecords.push({ rowIndex: i, row: strippedRow });
+            }
+        }
+
+        const duplicatesRemoved = csvData.length - deduplicatedRecords.length;
+        if (duplicatesRemoved > 0) {
+            console.log(
+                `[Dedup] Removed ${duplicatesRemoved} duplicate(s) based on printed fields: [${printedFields.join(', ')}]. ` +
+                `${csvData.length} → ${deduplicatedRecords.length} unique certificates.`
+            );
+        }
+
+        await runGeneration(deduplicatedRecords, false);
     };
 
     const handleRetry = () => {
         const records = retryQueue.map(r => ({ rowIndex: r.rowIndex, row: r.row }));
-        generateBatch(records, true);
+        runGeneration(records, true);
     };
 
     const handlePause = () => {
