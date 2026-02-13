@@ -117,7 +117,7 @@ frontend/
 | **Zustand** | Lightweight state management |
 | **Tailwind CSS 4** | Utility-first styling |
 | **jsPDF** | Client-side PDF generation |
-| **JSZip** | ZIP file creation |
+| **client-zip** | Streaming ZIP file creation |
 | **Lucide React** | Icon library |
 | **HTML5 Canvas** | Certificate rendering |
 

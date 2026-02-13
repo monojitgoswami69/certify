@@ -17,10 +17,17 @@ export function downloadBlob(blob: Blob, filename: string) {
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
+    // Append to DOM — required by Firefox for reliable clicks
+    a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
-    a.remove();
+
+    // Cleanup: remove element immediately, revoke URL after browser registers download
+    // 60 seconds is plenty for even slow browsers to register the download
+    setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }, 60000);
 }
 
 /**

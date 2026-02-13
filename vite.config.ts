@@ -19,7 +19,6 @@ export default defineConfig({
         manualChunks: {
           // Split heavy vendor libs for better caching
           'vendor-pdf': ['jspdf'],
-          'vendor-zip': ['jszip'],
           'vendor-csv': ['papaparse'],
         },
       },
