@@ -309,8 +309,10 @@ export class CertificateWorkerPool {
 
             worker.addEventListener('message', handler);
 
-            // Track this resolve so terminate() can unblock it
-            this.pendingResolves.push(resolve as any);
+            // Track a resolve so terminate() can unblock any pending processChunk calls.
+            // Note: generateSingle has its own resolve; we register a no-op here.
+            const noop = () => { resolve({ id: task.id, rowIndex: task.rowIndex, filename: task.filename, error: 'Worker pool terminated' }); };
+            this.pendingResolves.push(noop);
 
             worker.postMessage({
                 type: 'generateBatch',

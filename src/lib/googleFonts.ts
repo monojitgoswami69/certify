@@ -36,7 +36,7 @@ const requestedFonts = new Set<string>();
 import googleFontsData from '../data/google-fonts.json';
 
 // In-memory font list
-let allGoogleFonts: GoogleFont[] = googleFontsData as GoogleFont[];
+const allGoogleFonts: GoogleFont[] = googleFontsData as GoogleFont[];
 
 /**
  * Initialize fonts (sync now, but kept async for signature compatibility if needed)

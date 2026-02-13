@@ -12,4 +12,25 @@ export default defineConfig({
   server: {
     port: 3000,
   },
+  build: {
+    target: 'es2022',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Split heavy vendor libs for better caching
+          'vendor-pdf': ['jspdf'],
+          'vendor-zip': ['jszip'],
+          'vendor-csv': ['papaparse'],
+        },
+      },
+    },
+  },
+  // jsPDF pulls in html2canvas + dompurify for its html() method.
+  // We only use addImage(), so stub them out to save ~250KB.
+  resolve: {
+    alias: {
+      'html2canvas': '/dev/null',
+      'dompurify': '/dev/null',
+    },
+  },
 })

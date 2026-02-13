@@ -44,6 +44,7 @@ export function CsvPreviewPopup({ isOpen, onClose }: CsvPreviewPopupProps) {
                     <button
                         onClick={onClose}
                         className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                        aria-label="Close CSV preview"
                     >
                         <X className="w-5 h-5 text-slate-500" />
                     </button>
