@@ -77,15 +77,24 @@ export function Canvas() {
         const container = containerRef.current;
         if (!canvas || !container || !templateImage) return;
 
-        const containerRect = container.getBoundingClientRect();
-        const padding = 48;
+        const padding = 0;
 
+        const containerRect = container.getBoundingClientRect();
         const availableWidth = containerRect.width - padding * 2;
         const availableHeight = containerRect.height - padding * 2;
 
-        const scaleX = availableWidth / templateImage.width;
-        const scaleY = availableHeight / templateImage.height;
-        const scale = Math.min(scaleX, scaleY, 1);
+        const isMobile = window.innerWidth < 1024;
+
+        let scale;
+        if (isMobile) {
+            // Mobile: Fit to width only, allow vertical scrolling
+            scale = availableWidth / templateImage.width;
+        } else {
+            // Desktop: Fit fully within view (contain), preventing scroll unless necessary
+            const scaleX = availableWidth / templateImage.width;
+            const scaleY = availableHeight / templateImage.height;
+            scale = Math.min(scaleX, scaleY);
+        }
 
         setDisplayScale(scale);
         canvas.width = Math.floor(templateImage.width * scale);
@@ -517,13 +526,9 @@ export function Canvas() {
 
     if (!templateImage) {
         return (
-            <main className="flex-1 bg-slate-50 p-8 overflow-hidden">
-                <div className="w-full h-full border-4 border-dotted border-slate-400/50 rounded-2xl flex items-center justify-center bg-transparent relative group">
-                    {/* Subtle aesthetic accents at corners */}
-                    <div className="absolute top-8 left-8 w-4 h-4 border-t-2 border-l-2 border-slate-200 rounded-tl-lg" />
-                    <div className="absolute top-8 right-8 w-4 h-4 border-t-2 border-r-2 border-slate-200 rounded-tr-lg" />
-                    <div className="absolute bottom-8 left-8 w-4 h-4 border-b-2 border-l-2 border-slate-200 rounded-bl-lg" />
-                    <div className="absolute bottom-8 right-8 w-4 h-4 border-b-2 border-r-2 border-slate-200 rounded-br-lg" />
+            <main className="flex-1 bg-transparent p-4 lg:p-8 overflow-hidden min-h-[200px] flex flex-col">
+                <div className="w-full flex-1 flex items-center justify-center bg-transparent relative group min-h-[160px]">
+
 
                     <div className="text-center animate-fade-in">
                         <h2 className="text-2xl font-bold text-slate-600 mb-3 font-serif tracking-tight">Workspace Ready</h2>
@@ -540,11 +545,11 @@ export function Canvas() {
     return (
         <main
             ref={containerRef}
-            className="flex-1 flex items-center justify-center bg-slate-100 relative overflow-auto"
+            className="flex-1 flex items-center justify-center bg-transparent relative overflow-auto"
         >
             <canvas
                 ref={canvasRef}
-                className="shadow-2xl rounded-lg cursor-crosshair"
+                className="rounded-lg cursor-crosshair border border-slate-200"
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}

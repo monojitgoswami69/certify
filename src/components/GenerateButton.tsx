@@ -9,13 +9,13 @@
  * MEMORY: Chunked ZIP generation to avoid memory exhaustion on large batches
  */
 
-import { useState, useRef, useCallback } from 'react';
-import { Download, Loader2, Pause, Play, X, CheckCircle2, AlertCircle, RefreshCw, Clock, Cpu } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { Download, Loader2, X, CheckCircle2, AlertCircle, RefreshCw, Clock, Cpu } from 'lucide-react';
 import JSZip from 'jszip';
 import { jsPDF } from 'jspdf';
 import { useAppStore } from '../store/appStore';
 import { downloadBlob, sanitizeFilename, delay } from '../lib/utils';
-import { loadFont } from '../lib/certificateGenerator';
+import { loadGoogleFont } from '../lib/googleFonts';
 import { CertificateWorkerPool } from '../lib/workerPool';
 import type { CsvRow } from '../types';
 
@@ -51,7 +51,7 @@ interface GenerateProgress {
     current: number;
     total: number;
     currentName: string;
-    status: 'idle' | 'generating' | 'paused' | 'completed' | 'zipping' | 'loading-fonts' | 'initializing';
+    status: 'idle' | 'generating' | 'completed' | 'zipping' | 'loading-fonts' | 'initializing' | 'cooldown';
     errors: FailedRecord[];
     generated: number;
     zipPart: number;
@@ -96,13 +96,21 @@ export function GenerateButton() {
     const [progress, setProgress] = useState<GenerateProgress>(DEFAULT_PROGRESS);
     const [logs, setLogs] = useState<GenerateLogs>(DEFAULT_LOGS);
     const [retryQueue, setRetryQueue] = useState<FailedRecord[]>([]);
-    const pauseRef = useRef(false);
     const abortRef = useRef(false);
     const workerPoolRef = useRef<CertificateWorkerPool | null>(null);
-    const [localPaused, setLocalPaused] = useState(false);
 
     const validBoxes = boxes.filter(b => b.field);
     const isReady = templateImage && csvData.length > 0 && validBoxes.length > 0 && outputFormats.length > 0;
+
+    // Cleanup: terminate worker pool if component unmounts mid-generation
+    useEffect(() => {
+        return () => {
+            if (workerPoolRef.current) {
+                workerPoolRef.current.terminate();
+                workerPoolRef.current = null;
+            }
+        };
+    }, []);
 
     /**
      * Get the filename basis from a CSV row
@@ -144,12 +152,11 @@ export function GenerateButton() {
     ) => {
         if (!templateImage || validBoxes.length === 0 || abortRef.current) return { generatedCount: 0, errors: [] };
 
-        const startTime = Date.now();
+        let pureGenerationTime = 0; // Track only actual generation time (exclude zipping, waiting, etc.)
         const errors: FailedRecord[] = [];
         let totalGeneratedCount = 0;
 
-        pauseRef.current = false;
-        setLocalPaused(false);
+
         setError(null);
         setGenerationStatus('running');
 
@@ -170,7 +177,7 @@ export function GenerateButton() {
 
         const uniqueFonts = new Set(boxes.map(b => b.fontFamily).filter(Boolean));
         for (const font of uniqueFonts) {
-            await loadFont(font);
+            loadGoogleFont(font);
         }
 
         // =====================================================================
@@ -232,11 +239,6 @@ export function GenerateButton() {
                 const rawCount = TARGET_ZIP_SIZE_BYTES / certSize;
                 certsPerZip = Math.max(500, Math.floor(rawCount / 500) * 500);
 
-                console.log(
-                    `[Probe] Single cert size: ${(certSize / 1024).toFixed(1)}KB | ` +
-                    `Raw count per 1GB: ${Math.floor(rawCount)} | ` +
-                    `Rounded to: ${certsPerZip}`
-                );
 
                 probeResult.blob = undefined;
             } else {
@@ -278,12 +280,6 @@ export function GenerateButton() {
         for (let chunkIndex = 0; chunkIndex < totalZipParts; chunkIndex++) {
             if (abortRef.current) break;
 
-            // --- Pause gate (between chunks) ---
-            while (pauseRef.current && !abortRef.current) {
-                await delay(200);
-            }
-            if (abortRef.current) break;
-
             // Slice this chunk's tasks
             const chunkStart = chunkIndex * certsPerZip;
             const chunkEnd = Math.min(chunkStart + certsPerZip, allTasks.length);
@@ -309,6 +305,7 @@ export function GenerateButton() {
             });
 
             let lastUpdate = Date.now();
+            const chunkGenerationStart = Date.now();
 
             // -----------------------------------------------------------------
             // GENERATE: Send chunk to workers, collect results as they arrive.
@@ -317,8 +314,6 @@ export function GenerateButton() {
             await workerPool.processChunk(chunkTasks, (result, completedInChunk, totalInChunk) => {
                 // Process successful result
                 if (result && !result.error && result.blob) {
-                    // For PDF format: store raw JPEG blob now, convert to PDF after chunk completes.
-                    // For image formats: store final blob directly.
                     const ext = format === 'pdf' ? 'jpg' : fileExtension;
                     folder.file(`${result.filename}.${ext}`, result.blob);
                     result.blob = undefined; // Release — JSZip now owns the reference
@@ -347,10 +342,14 @@ export function GenerateButton() {
                     setLogs(prev => ({
                         ...prev,
                         lastGenerated: new Date(),
-                        totalElapsed: now - startTime,
+                        totalElapsed: pureGenerationTime,
                     }));
                 }
             });
+
+            // Track pure generation time (exclude zipping, PDF conversion, etc.)
+            const chunkGenerationEnd = Date.now();
+            pureGenerationTime += (chunkGenerationEnd - chunkGenerationStart);
 
             // -----------------------------------------------------------------
             // BARRIER: processChunk() resolved — ALL workers are now IDLE.
@@ -427,10 +426,22 @@ export function GenerateButton() {
             }
 
             // -----------------------------------------------------------------
-            // GC: Release all references, pause for garbage collection
+            // GC + DOWNLOAD FLUSH: Release all references, wait for browser to flush download
             // -----------------------------------------------------------------
             zip = null;
-            await delay(50);
+            await delay(50); // GC pause
+
+            // CRITICAL: Wait 2 seconds for browser to flush the download to disk
+            // before starting the next batch. Without this, the download manager
+            // gets overwhelmed and stalls until workers stop.
+            if (chunkIndex < totalZipParts - 1) { // Don't wait after the last batch
+                setProgress(prev => ({
+                    ...prev,
+                    status: 'cooldown',
+                    currentName: `[${format.toUpperCase()}] Cooling down...`,
+                }));
+                await delay(2000);
+            }
         }
 
         // =====================================================================
@@ -449,7 +460,7 @@ export function GenerateButton() {
         }));
         // Note: generationStatus is now handled by the finally block in handleGenerate
         setRetryQueue(errors);
-        setLogs(prev => ({ ...prev, totalElapsed: Date.now() - startTime }));
+        setLogs(prev => ({ ...prev, totalElapsed: pureGenerationTime })); // Final update with pure generation time
 
         return { generatedCount: totalGeneratedCount, errors };
     }, [templateImage, boxes, validBoxes, getFilenameBasis, setError, setGenerationStatus, configuredWorkerCount]);
@@ -458,7 +469,6 @@ export function GenerateButton() {
     const runGeneration = async (records: Array<{ rowIndex: number; row: CsvRow }>, isRetry: boolean = false) => {
         if (generationStatus === 'running') return;
 
-        const startTime = Date.now();
         let cumulativeGenerated = 0;
         let cumulativeErrors: FailedRecord[] = [];
 
@@ -495,7 +505,7 @@ export function GenerateButton() {
                 }));
                 setRetryQueue(uniqueErrors);
                 setGenerationStatus(uniqueErrors.length > 0 ? 'idle' : 'completed');
-                setLogs(prev => ({ ...prev, totalElapsed: Date.now() - startTime }));
+                // Don't update totalElapsed here — it's already set to pureGenerationTime in generateBatch
             } else {
                 setGenerationStatus('idle');
                 if (progress.status !== 'idle') {
@@ -524,14 +534,6 @@ export function GenerateButton() {
             }
         }
 
-        const duplicatesRemoved = csvData.length - deduplicatedRecords.length;
-        if (duplicatesRemoved > 0) {
-            console.log(
-                `[Dedup] Removed ${duplicatesRemoved} duplicate(s) based on printed fields: [${printedFields.join(', ')}]. ` +
-                `${csvData.length} → ${deduplicatedRecords.length} unique certificates.`
-            );
-        }
-
         await runGeneration(deduplicatedRecords, false);
     };
 
@@ -540,21 +542,10 @@ export function GenerateButton() {
         runGeneration(records, true);
     };
 
-    const handlePause = () => {
-        pauseRef.current = true;
-        setLocalPaused(true);
-        setProgress(prev => ({ ...prev, status: 'paused' }));
-    };
 
-    const handleResume = () => {
-        pauseRef.current = false;
-        setLocalPaused(false);
-        setProgress(prev => ({ ...prev, status: 'generating' }));
-    };
 
     const handleAbort = () => {
         abortRef.current = true;
-        pauseRef.current = false;
         // Terminate worker pool if running
         if (workerPoolRef.current) {
             workerPoolRef.current.terminate();
@@ -683,19 +674,13 @@ export function GenerateButton() {
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
                 <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                        {progress.status === 'loading-fonts' || progress.status === 'zipping' || progress.status === 'initializing' ? (
-                            <Loader2 className="w-4 h-4 animate-spin text-primary-600" />
-                        ) : progress.status === 'paused' ? (
-                            <Pause className="w-4 h-4 text-amber-500" />
-                        ) : (
-                            <Loader2 className="w-4 h-4 animate-spin text-primary-600" />
-                        )}
+                        <Loader2 className="w-4 h-4 animate-spin text-primary-600" />
                         <span className="text-sm font-medium text-slate-700">
                             {progress.status === 'loading-fonts' ? 'Loading fonts...' :
                                 progress.status === 'initializing' ? 'Initializing workers...' :
                                     progress.status === 'zipping'
                                         ? `Creating ZIP${progress.totalZipParts > 1 ? ` (${progress.zipPart}/${progress.totalZipParts})` : ''}...` :
-                                        progress.status === 'paused' ? 'Paused' :
+                                        progress.status === 'cooldown' ? 'Cooling down...' :
                                             'Generating...'}
                         </span>
                     </div>
@@ -746,35 +731,14 @@ export function GenerateButton() {
                 )}
             </div>
 
-            {/* Control Buttons */}
-            <div className="flex gap-2">
-                {localPaused ? (
-                    <button
-                        onClick={handleResume}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-colors"
-                    >
-                        <Play className="w-4 h-4" />
-                        <span>Resume</span>
-                    </button>
-                ) : (
-                    <button
-                        onClick={handlePause}
-                        disabled={progress.status === 'zipping' || progress.status === 'loading-fonts'}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50"
-                    >
-                        <Pause className="w-4 h-4" />
-                        <span>Pause</span>
-                    </button>
-                )}
-
-                <button
-                    onClick={handleAbort}
-                    className="flex items-center justify-center gap-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-                >
-                    <X className="w-4 h-4" />
-                    <span>Cancel</span>
-                </button>
-            </div>
+            {/* Cancel Button */}
+            <button
+                onClick={handleAbort}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
+            >
+                <X className="w-4 h-4" />
+                <span>Cancel</span>
+            </button>
         </div>
     );
 }

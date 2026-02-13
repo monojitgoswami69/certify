@@ -11,7 +11,7 @@
  * No backend required - all processing happens in the browser.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { FileSpreadsheet, Eye, EyeOff, X, Image, RotateCcw, ArrowLeft } from 'lucide-react';
 import { StepCard } from './components/StepCard';
 import { TemplateUpload } from './components/TemplateUpload';
@@ -28,26 +28,7 @@ import { LandingPage } from './components/LandingPage';
 // Mobile Overlay Component
 // =============================================================================
 
-function MobileOverlay() {
-    return (
-        <div className="fixed inset-0 z-50 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-6 lg:hidden">
-            <div className="text-center max-w-md">
-                <h1 className="text-2xl font-bold text-white mb-3">
-                    Desktop Experience Required
-                </h1>
-                <p className="text-slate-300 mb-6 leading-relaxed">
-                    This certificate designer requires a larger screen for the best experience.
-                    The canvas-based design tools and multi-step workflow are optimized for desktop use.
-                </p>
-                <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
-                    <p className="text-sm text-slate-400">
-                        Please open this page on a <span className="text-white font-medium">desktop or laptop computer</span> with a screen width of at least 1024px.
-                    </p>
-                </div>
-            </div>
-        </div>
-    );
-}
+
 
 // =============================================================================
 // Main Application Component
@@ -75,10 +56,11 @@ export default function App() {
     } = useAppStore();
 
     const [showCsvPreview, setShowCsvPreview] = useState(false);
-    const [isMobile, setIsMobile] = useState(false);
     const [currentView, setCurrentView] = useState<'landing' | 'editor'>('landing');
     const [isTransitioning, setIsTransitioning] = useState(false);
     const [transitionStep, setTransitionStep] = useState<'idle' | 'exiting' | 'entering' | 'exiting-back' | 'entering-back'>('idle');
+
+    type OutputFormat = 'png' | 'jpg' | 'pdf';
 
     const handleStart = async () => {
         if (isTransitioning) return;
@@ -100,7 +82,7 @@ export default function App() {
         setTransitionStep('idle');
     };
 
-    const handleExit = async () => {
+    const handleExit = useCallback(async () => {
         if (isTransitioning || currentView === 'landing') return;
 
         setIsTransitioning(true);
@@ -115,34 +97,30 @@ export default function App() {
 
         setIsTransitioning(false);
         setTransitionStep('idle');
-    };
+    }, [isTransitioning, currentView]);
+
+    // Keep a stable ref to handleExit for the popstate listener
+    const handleExitRef = useRef(handleExit);
+    useEffect(() => {
+        handleExitRef.current = handleExit;
+    }, [handleExit]);
 
     // Listen for browser back button
     useEffect(() => {
         const onPopState = (e: PopStateEvent) => {
             if (currentView === 'editor' && (!e.state || e.state.view !== 'editor')) {
-                handleExit();
+                handleExitRef.current();
             }
         };
         window.addEventListener('popstate', onPopState);
         return () => window.removeEventListener('popstate', onPopState);
-    }, [currentView, isTransitioning]);
+    }, [currentView]);
 
     // Get max workers — capped to half of reported cores (browser JPEG pool saturates at ~half)
     const maxWorkers = typeof navigator !== 'undefined'
         ? Math.max(2, Math.min(Math.floor((navigator.hardwareConcurrency || 4) / 2), 16))
         : 4;
 
-    // Check screen size for mobile detection
-    useEffect(() => {
-        const checkMobile = () => {
-            setIsMobile(window.innerWidth < 1024);
-        };
-
-        checkMobile();
-        window.addEventListener('resize', checkMobile);
-        return () => window.removeEventListener('resize', checkMobile);
-    }, []);
 
     // Load Google Fonts on mount
     useEffect(() => {
@@ -151,9 +129,7 @@ export default function App() {
 
             // Preload popular fonts for instant availability
             const popularFonts = getPopularFonts();
-            const results = preloadFonts(popularFonts.map(f => f.family));
-            const loaded = results.filter(r => r.success).length;
-            console.log(`Preloaded ${loaded}/${popularFonts.length} popular fonts`);
+            preloadFonts(popularFonts.map(f => f.family));
         });
     }, [setFonts]);
 
@@ -183,10 +159,7 @@ export default function App() {
         );
     }
 
-    // Show mobile overlay on small screens ONLY for the editor
-    if (isMobile) {
-        return <MobileOverlay />;
-    }
+
 
     const editorClasses = transitionStep === 'entering'
         ? 'animate-page-in'
@@ -194,204 +167,252 @@ export default function App() {
             ? 'animate-back-out'
             : '';
 
-    return (
-        <div className={`h-screen flex bg-slate-50 transition-all duration-700 ${editorClasses}`}>
-            {/* Sidebar */}
-            <aside className="w-[420px] bg-white border-r border-slate-200 overflow-y-auto p-4 space-y-4 flex-shrink-0">
-                {/* Header */}
-                <div className="pb-4 border-b border-slate-100 mb-2 flex items-center justify-between px-2">
-                    <div className="flex flex-col items-start">
-                        <div className="flex items-center gap-2 mb-1">
-                            <button
-                                onClick={handleExit}
-                                className="p-1.5 -ml-1.5 hover:bg-slate-100 rounded-lg transition-colors group"
-                                title="Exit to Landing Page"
-                            >
-                                <ArrowLeft className="w-5 h-5 text-slate-400 group-hover:text-slate-600" />
-                            </button>
-                            <img src="/certify-logo.webp" alt="Certify Logo" className="w-8 h-8 object-contain" />
-                            <span
-                                className="font-bold tracking-tight text-slate-800"
-                                style={{ fontFamily: "'Nova Mono', monospace", fontSize: '20px' }}
-                            >
-                                CERTIFY
+    const brandingHeaderContent = (
+        <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-3">
+                <button
+                    onClick={handleExit}
+                    className="p-1.5 -ml-1 hover:bg-slate-100 rounded-lg transition-colors group cursor-pointer"
+                    title="Exit to Landing Page"
+                >
+                    <ArrowLeft className="w-5 h-5 text-slate-400 group-hover:text-slate-600" />
+                </button>
+                <div className="flex items-center gap-2">
+                    <img src="/certify-logo.webp" alt="Certify Logo" className="w-7 h-7 object-contain" />
+                    <div className="flex flex-col">
+                        <span
+                            className="font-bold tracking-tight text-slate-800 leading-none"
+                            style={{ fontFamily: "'Nova Mono', monospace", fontSize: '18px' }}
+                        >
+                            CERTIFY
+                        </span>
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
+                            Mass Generator
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <button
+                onClick={reset}
+                title="Reset all progress"
+                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all active:scale-95 cursor-pointer"
+            >
+                <RotateCcw className="w-5 h-5" />
+            </button>
+        </div>
+    );
+
+    const stepListContent = (
+        <>
+            {/* Step 1: Upload Template */}
+            <StepCard number={1} title="Upload Template" status={step1Status}>
+                {templateImage ? (
+                    <div className="flex items-center justify-between px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg cursor-default group">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <Image className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                            <span className="text-sm text-slate-700 truncate">
+                                {templateFile?.name || 'Template'}
                             </span>
                         </div>
-                        <p className="text-xs text-slate-500 font-bold">Mass certificate generator</p>
-                    </div>
-
-                    <button
-                        onClick={reset}
-                        title="Reset all progress"
-                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all active:scale-95"
-                    >
-                        <RotateCcw className="w-5 h-5" />
-                    </button>
-                </div>
-
-                {/* Step 1: Upload Template */}
-                <StepCard number={1} title="Upload Template" status={step1Status}>
-                    {templateImage ? (
-                        <div className="flex items-center justify-between px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg cursor-default group">
-                            <div className="flex items-center gap-2 min-w-0">
-                                <Image className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                                <span className="text-sm text-slate-700 truncate">
-                                    {templateFile?.name || 'Template'}
-                                </span>
-                            </div>
-                            <button
-                                onClick={clearTemplate}
-                                className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors flex-shrink-0"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-                        </div>
-                    ) : (
-                        <TemplateUpload />
-                    )}
-                </StepCard>
-
-                {/* Step 2: Import Data */}
-                <StepCard number={2} title="Import Data" status={step2Status}>
-                    {csvData.length > 0 ? (
-                        <div
-                            className="flex items-center justify-between px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors group"
-                            onClick={() => setShowCsvPreview(true)}
+                        <button
+                            onClick={clearTemplate}
+                            className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors flex-shrink-0 cursor-pointer"
                         >
-                            <div className="flex items-center gap-2 min-w-0">
-                                <FileSpreadsheet className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                                <span className="text-sm text-slate-700 truncate">
-                                    {csvFile?.name || 'Data'} ({csvData.length} records)
-                                </span>
-                            </div>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    clearCsvData();
-                                }}
-                                className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors flex-shrink-0"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-                        </div>
-                    ) : (
-                        <CsvUpload />
-                    )}
-                </StepCard>
-
-                {/* Step 3: Define Text Areas */}
-                <StepCard number={3} title="Define Text Areas" status={step3Status}>
-                    <div className="space-y-3">
-                        <p className="text-sm text-slate-500 font-bold">
-                            Draw rectangles on the template where text should appear.
-                        </p>
-
-                        {/* Preview Toggle */}
-                        <div className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
-                            <span className="text-sm text-slate-600">Preview Data</span>
-                            <button
-                                onClick={() => setPreviewEnabled(!previewEnabled)}
-                                className={`p-1.5 rounded-md transition-colors ${previewEnabled
-                                    ? 'bg-primary-100 text-primary-600'
-                                    : 'bg-slate-200 text-slate-500'
-                                    }`}
-                            >
-                                {previewEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                            </button>
-                        </div>
+                            <X className="w-4 h-4" />
+                        </button>
                     </div>
-                </StepCard>
+                ) : (
+                    <TemplateUpload />
+                )}
+            </StepCard>
 
-                {/* Step 4: Customize Box */}
-                <StepCard number={4} title="Customize Box" status={step4Status}>
-                    <BoxCustomizer />
-                </StepCard>
+            {/* Step 2: Import Data */}
+            <StepCard number={2} title="Import Data" status={step2Status}>
+                {csvData.length > 0 ? (
+                    <div
+                        className="flex items-center justify-between px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors group"
+                        onClick={() => setShowCsvPreview(true)}
+                    >
+                        <div className="flex items-center gap-2 min-w-0">
+                            <FileSpreadsheet className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                            <span className="text-sm text-slate-700 truncate">
+                                {csvFile?.name || 'Data'} ({csvData.length} records)
+                            </span>
+                        </div>
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                clearCsvData();
+                            }}
+                            className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors flex-shrink-0 cursor-pointer"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                ) : (
+                    <CsvUpload />
+                )}
+            </StepCard>
 
-                {/* Step 5: Generate */}
-                <StepCard number={5} title="Download Certificates" status={step5Status}>
-                    {/* Format Selector */}
-                    <div className="mb-4 p-3 bg-slate-50 rounded-2xl border border-slate-200">
-                        <label className="block text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-widest text-center">Output Formats</label>
-                        <div className="grid grid-cols-3 gap-1 p-1 bg-white border border-slate-200 rounded-xl">
-                            {['png', 'jpg', 'pdf'].map((fmt) => {
-                                const isSelected = outputFormats.includes(fmt as any);
-                                return (
-                                    <div
-                                        key={fmt}
-                                        onClick={() => {
+            {/* Step 3: Define Text Areas */}
+            <StepCard number={3} title="Define Text Areas" status={step3Status}>
+                <div className="space-y-3">
+                    <p className="text-sm text-slate-500 font-bold">
+                        Draw rectangles on the template where text should appear.
+                    </p>
+
+                    {/* Preview Toggle */}
+                    <div className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                        <span className="text-sm text-slate-600 font-medium">Preview with data</span>
+                        <button
+                            onClick={() => setPreviewEnabled(!previewEnabled)}
+                            className={`p-1.5 rounded-md transition-colors cursor-pointer ${previewEnabled
+                                ? 'bg-primary-100 text-primary-600'
+                                : 'bg-slate-200 text-slate-500'
+                                }`}
+                        >
+                            {previewEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                        </button>
+                    </div>
+                </div>
+            </StepCard>
+
+            {/* Step 4: Customize Box */}
+            <StepCard number={4} title="Customize Box" status={step4Status}>
+                <BoxCustomizer />
+            </StepCard>
+
+            {/* Step 5: Generate */}
+            <StepCard number={5} title="Download Certificates" status={step5Status}>
+                {/* Format Selector */}
+                <div className="mb-4 p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                    <label className="block text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-widest text-center">Output Formats</label>
+                    <div className="grid grid-cols-3 gap-1 p-1 bg-white border border-slate-200 rounded-xl">
+                        {['png', 'jpg', 'pdf'].map((fmt) => {
+                            const isSelected = outputFormats.includes(fmt as OutputFormat);
+                            return (
+                                <div
+                                    key={fmt}
+                                    role="checkbox"
+                                    aria-checked={isSelected}
+                                    aria-label={`Output format: ${fmt.toUpperCase()}`}
+                                    tabIndex={0}
+                                    onClick={() => {
+                                        const newFormats = isSelected
+                                            ? outputFormats.filter(f => f !== fmt)
+                                            : [...outputFormats, fmt as OutputFormat];
+                                        setOutputFormats(newFormats);
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
                                             const newFormats = isSelected
                                                 ? outputFormats.filter(f => f !== fmt)
-                                                : [...outputFormats, fmt as any];
+                                                : [...outputFormats, fmt as OutputFormat];
                                             setOutputFormats(newFormats);
-                                        }}
-                                        className={`flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg transition-all duration-300 cursor-pointer ${isSelected
-                                            ? 'bg-primary-50 ring-1 ring-primary-200'
-                                            : 'hover:bg-slate-50'
-                                            }`}
-                                    >
-                                        <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${isSelected
-                                            ? 'bg-primary-600 border-primary-600'
-                                            : 'bg-white border-slate-400'
-                                            }`}>
-                                            {isSelected && <div className="w-1.5 h-1.5 bg-white rounded-full animate-fade-in" />}
-                                        </div>
-                                        <span
-                                            className={`text-[10px] font-black uppercase tracking-tight transition-colors ${isSelected ? 'text-primary-700' : 'text-slate-900'}`}
-                                        >
-                                            {fmt}
-                                        </span>
+                                        }
+                                    }}
+                                    className={`flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg transition-all duration-300 cursor-pointer ${isSelected
+                                        ? 'bg-primary-50 ring-1 ring-primary-200'
+                                        : 'hover:bg-slate-50'
+                                        }`}
+                                >
+                                    <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${isSelected
+                                        ? 'bg-primary-600 border-primary-600'
+                                        : 'bg-white border-slate-400'
+                                        }`}>
+                                        {isSelected && <div className="w-1.5 h-1.5 bg-white rounded-full animate-fade-in" />}
                                     </div>
-                                );
-                            })}
-                        </div>
-                        <p className="text-[9px] text-slate-500 mt-2 italic text-center opacity-70 font-bold">Select one or more formats</p>
+                                    <span
+                                        className={`text-[10px] font-black uppercase tracking-tight transition-colors ${isSelected ? 'text-primary-700' : 'text-slate-900'}`}
+                                    >
+                                        {fmt}
+                                    </span>
+                                </div>
+                            );
+                        })}
                     </div>
+                    <p className="text-[9px] text-slate-500 mt-2 italic text-center opacity-70 font-bold">Select at least one format</p>
+                </div>
 
-                    {/* Worker count selector - only show when idle */}
-                    {generationStatus === 'idle' && (
-                        <div className="mb-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                            <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm font-medium text-slate-700">Parallel Workers</span>
-                                <span className="text-sm font-medium text-primary-600">{workerCount}</span>
-                            </div>
-                            <input
-                                type="range"
-                                min="1"
-                                max={maxWorkers}
-                                value={workerCount}
-                                onChange={(e) => setWorkerCount(parseInt(e.target.value))}
-                                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-primary-600"
-                            />
-                            <div className="flex justify-between text-xs text-slate-400 mt-1">
-                                <span>1</span>
-                                <span>{maxWorkers}</span>
-                            </div>
-                            <p className="text-xs text-slate-500 mt-2 text-center w-full">
-                                {workerCount === 1
-                                    ? 'Single worker mode - lower resource usage'
-                                    : `${workerCount} workers - faster but uses more resources`
-                                }
-                            </p>
+                {/* Worker count selector - only show when idle */}
+                {generationStatus === 'idle' && (
+                    <div className="mb-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-medium text-slate-700">Parallel Workers</span>
+                            <span className="text-sm font-medium text-primary-600">{workerCount}</span>
                         </div>
-                    )}
+                        <input
+                            type="range"
+                            min="1"
+                            max={maxWorkers}
+                            value={workerCount}
+                            onChange={(e) => setWorkerCount(parseInt(e.target.value))}
+                            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-primary-600"
+                        />
+                        <div className="flex justify-between text-xs text-slate-400 mt-1">
+                            <span>1</span>
+                            <span>{maxWorkers}</span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-2 text-center w-full">
+                            {workerCount === 1
+                                ? 'Single worker mode - lower resource usage'
+                                : `${workerCount} workers - faster but uses more resources`
+                            }
+                        </p>
+                    </div>
+                )}
 
-                    <GenerateButton />
-                    {error && (
-                        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
-                            {error}
-                        </div>
-                    )}
-                </StepCard>
+                <GenerateButton />
+                {error && (
+                    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+                        {error}
+                    </div>
+                )}
+            </StepCard>
+        </>
+    );
+
+    return (
+        <div className={`h-screen flex flex-col lg:flex-row bg-slate-50 transition-all duration-700 ${editorClasses} overflow-hidden`}>
+            {/* Desktop Sidebar (Left) */}
+            <aside className="hidden lg:flex flex-col w-[420px] bg-white border-r border-slate-200 overflow-y-auto px-5 py-4 space-y-4 flex-shrink-0">
+                <div className="pb-4 border-b border-slate-100 mb-2">
+                    {brandingHeaderContent}
+                </div>
+                {stepListContent}
             </aside>
 
-            {/* Canvas Area */}
-            <Canvas />
+            {/* Main Content Area (Canvas top, Header top on mobile, Steps bottom on mobile) */}
+            <main className="flex-1 block overflow-y-auto lg:overflow-hidden relative bg-slate-50">
+                {/* Mobile Header (Sticky top) */}
+                <div className="lg:hidden sticky top-0 z-[60] bg-white border-b border-slate-200 px-[10px] py-3 h-14 flex items-center shadow-sm">
+                    {brandingHeaderContent}
+                </div>
 
-            {/* CSV Preview Popup */}
-            <CsvPreviewPopup
-                isOpen={showCsvPreview}
-                onClose={() => setShowCsvPreview(false)}
-            />
+                {/* Canvas - order 1 on mobile */}
+                <div
+                    className="sticky top-14 z-[50] lg:static flex-shrink-0 w-full lg:flex-1 h-auto lg:h-full bg-[#F3F4F7] flex flex-col px-[10px] lg:px-5 py-5 lg:py-8 border-b border-slate-200 lg:border-none shadow-sm lg:shadow-none"
+                    style={{
+                        backgroundImage: 'linear-gradient(rgba(203, 213, 225, 0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(203, 213, 225, 0.3) 1px, transparent 1px)',
+                        backgroundSize: '20px 20px'
+                    }}
+                >
+                    <Canvas />
+                </div>
+
+                {/* Mobile Step List - order 2 on mobile */}
+                <div className="lg:hidden relative z-[40] px-[10px] py-4 space-y-4 bg-slate-50 pb-20">
+                    {stepListContent}
+                </div>
+
+                {/* CSV Preview Popup */}
+                <CsvPreviewPopup
+                    isOpen={showCsvPreview}
+                    onClose={() => setShowCsvPreview(false)}
+                />
+            </main>
         </div>
     );
 }
