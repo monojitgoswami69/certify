@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { FileSpreadsheet, Eye, EyeOff, X, Image } from 'lucide-react';
+import { FileSpreadsheet, Eye, EyeOff, X, Image, RotateCcw } from 'lucide-react';
 import { StepCard } from './components/StepCard';
 import { TemplateUpload } from './components/TemplateUpload';
 import { CsvUpload } from './components/CsvUpload';
@@ -22,6 +22,7 @@ import { GenerateButton } from './components/GenerateButton';
 import { CsvPreviewPopup } from './components/CsvPreviewPopup';
 import { useAppStore } from './store/appStore';
 import { initializeGoogleFonts, preloadFonts, getPopularFonts } from './lib/googleFonts';
+import { LandingPage } from './components/LandingPage';
 
 // =============================================================================
 // Mobile Overlay Component
@@ -68,13 +69,17 @@ export default function App() {
         setWorkerCount,
         clearTemplate,
         clearCsvData,
+        outputFormats,
+        setOutputFormats,
+        reset,
     } = useAppStore();
 
     const [showCsvPreview, setShowCsvPreview] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
-    
+    const [currentView, setCurrentView] = useState<'landing' | 'editor'>('landing');
+
     // Get max workers based on CPU cores
-    const maxWorkers = typeof navigator !== 'undefined' 
+    const maxWorkers = typeof navigator !== 'undefined'
         ? Math.max(2, Math.min(navigator.hardwareConcurrency || 4, 32))
         : 4;
 
@@ -93,7 +98,7 @@ export default function App() {
     useEffect(() => {
         initializeGoogleFonts().then((fonts) => {
             setFonts(fonts);
-            
+
             // Preload popular fonts for instant availability
             const popularFonts = getPopularFonts();
             const results = preloadFonts(popularFonts.map(f => f.family));
@@ -102,7 +107,7 @@ export default function App() {
         });
     }, [setFonts]);
 
-    // Determine step completion status
+    // Determined step status...
     const step1Complete = !!templateImage;
     const step2Complete = csvData.length > 0;
     const step3Complete = boxes.length > 0;
@@ -115,7 +120,11 @@ export default function App() {
     const step4Status = !step3Complete ? 'pending' : step4Complete ? 'completed' : 'active';
     const step5Status = !step4Complete ? 'pending' : 'active';
 
-    // Show mobile overlay on small screens
+    if (currentView === 'landing') {
+        return <LandingPage onStart={() => setCurrentView('editor')} />;
+    }
+
+    // Show mobile overlay on small screens ONLY for the editor
     if (isMobile) {
         return <MobileOverlay />;
     }
@@ -125,9 +134,27 @@ export default function App() {
             {/* Sidebar */}
             <aside className="w-[420px] bg-white border-r border-slate-200 overflow-y-auto p-4 space-y-4 flex-shrink-0">
                 {/* Header */}
-                <div className="pb-2 border-b border-slate-100 mb-2 text-center">
-                    <h1 className="text-lg font-bold text-slate-800">Certificate Generator</h1>
-                    <p className="text-xs text-slate-500">Generate mass certificates at ease</p>
+                <div className="pb-4 border-b border-slate-100 mb-2 flex items-center justify-between px-2">
+                    <div className="flex flex-col items-start">
+                        <div className="flex items-center gap-2 mb-1">
+                            <img src="/certify-logo.webp" alt="Certify Logo" className="w-8 h-8 object-contain" />
+                            <h1
+                                className="font-bold text-slate-800 tracking-tight"
+                                style={{ fontFamily: "'Nova Mono', monospace", fontSize: '24px' }}
+                            >
+                                CERTIFY
+                            </h1>
+                        </div>
+                        <p className="text-xs text-slate-500 font-bold">Mass certificate generator</p>
+                    </div>
+
+                    <button
+                        onClick={reset}
+                        title="Reset all progress"
+                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all active:scale-95"
+                    >
+                        <RotateCcw className="w-5 h-5" />
+                    </button>
                 </div>
 
                 {/* Step 1: Upload Template */}
@@ -183,7 +210,7 @@ export default function App() {
                 {/* Step 3: Define Text Areas */}
                 <StepCard number={3} title="Define Text Areas" status={step3Status}>
                     <div className="space-y-3">
-                        <p className="text-sm text-slate-500">
+                        <p className="text-sm text-slate-500 font-bold">
                             Draw rectangles on the template where text should appear.
                         </p>
 
@@ -210,6 +237,42 @@ export default function App() {
 
                 {/* Step 5: Generate */}
                 <StepCard number={5} title="Download Certificates" status={step5Status}>
+                    {/* Format Selector */}
+                    <div className="mb-4 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                        <label className="block text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-widest text-center">Output Formats</label>
+                        <div className="grid grid-cols-4 gap-1.5">
+                            {['png', 'jpg', 'webp', 'pdf'].map((fmt) => {
+                                const isSelected = outputFormats.includes(fmt as any);
+                                return (
+                                    <button
+                                        key={fmt}
+                                        onClick={() => {
+                                            const newFormats = isSelected
+                                                ? outputFormats.filter(f => f !== fmt)
+                                                : [...outputFormats, fmt as any];
+                                            if (newFormats.length > 0) setOutputFormats(newFormats);
+                                        }}
+                                        className={`flex flex-col items-center gap-1.5 py-2 rounded-xl transition-all duration-300 border ${isSelected
+                                            ? 'bg-white border-primary-100 shadow-sm shadow-primary-500/5'
+                                            : 'bg-transparent border-transparent hover:bg-slate-100/50 text-slate-500'
+                                            }`}
+                                    >
+                                        <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center transition-all ${isSelected
+                                            ? 'bg-primary-600 border-primary-600'
+                                            : 'bg-white border-slate-300'
+                                            }`}>
+                                            {isSelected && <div className="w-1 h-1 bg-white rounded-full animate-fade-in" />}
+                                        </div>
+                                        <span className={`text-[10px] font-black uppercase tracking-tight ${isSelected ? 'text-slate-900' : 'text-slate-400'}`}>
+                                            {fmt}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <p className="text-[9px] text-slate-400 mt-2 italic text-center opacity-70">Select one or more formats</p>
+                    </div>
+
                     {/* Worker count selector - only show when idle */}
                     {generationStatus === 'idle' && (
                         <div className="mb-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
@@ -229,15 +292,15 @@ export default function App() {
                                 <span>1</span>
                                 <span>{maxWorkers}</span>
                             </div>
-                            <p className="text-xs text-slate-500 mt-2">
-                                {workerCount === 1 
+                            <p className="text-xs text-slate-500 mt-2 text-center w-full">
+                                {workerCount === 1
                                     ? 'Single worker mode - lower resource usage'
                                     : `${workerCount} workers - faster but uses more resources`
                                 }
                             </p>
                         </div>
                     )}
-                    
+
                     <GenerateButton />
                     {error && (
                         <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">

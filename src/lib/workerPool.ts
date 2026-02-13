@@ -43,7 +43,7 @@ interface WorkerState {
 
 export class CertificateWorkerPool {
     private workerStates: WorkerState[] = [];
-    private outputFormat: 'image/png' | 'image/jpeg' = 'image/jpeg';
+    private outputFormat: string = 'image/jpeg';
     private fileExtension: string = 'jpg';
 
     /**
@@ -61,13 +61,20 @@ export class CertificateWorkerPool {
     async initialize(
         templateImage: HTMLImageElement,
         boxes: TextBox[],
-        templateMimeType: string,
+        format: 'png' | 'jpg' | 'webp' | 'pdf',
         maxWorkers?: number
     ): Promise<number> {
-        // Determine output format based on template
-        if (templateMimeType.includes('png')) {
+        // Determine output format and extension
+        if (format === 'png') {
             this.outputFormat = 'image/png';
             this.fileExtension = 'png';
+        } else if (format === 'webp') {
+            this.outputFormat = 'image/webp';
+            this.fileExtension = 'webp';
+        } else if (format === 'pdf') {
+            // For PDF we generate high quality JPEG first
+            this.outputFormat = 'image/jpeg';
+            this.fileExtension = 'pdf'; // We'll convert to PDF on main thread or just use this as a marker
         } else {
             this.outputFormat = 'image/jpeg';
             this.fileExtension = 'jpg';
@@ -79,7 +86,7 @@ export class CertificateWorkerPool {
         canvas.height = templateImage.naturalHeight;
         const ctx = canvas.getContext('2d')!;
         ctx.drawImage(templateImage, 0, 0);
-        
+
         const templateImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const templateWidth = canvas.width;
         const templateHeight = canvas.height;
@@ -91,7 +98,7 @@ export class CertificateWorkerPool {
         // Create worker pool - use specified count or optimal
         const workerCount = maxWorkers ?? CertificateWorkerPool.getOptimalWorkerCount();
         const initPromises: Promise<void>[] = [];
-        
+
         for (let i = 0; i < workerCount; i++) {
             const worker = new Worker(
                 new URL('./certificateWorker.ts', import.meta.url),
@@ -107,7 +114,7 @@ export class CertificateWorkerPool {
                 const timeout = setTimeout(() => {
                     reject(new Error(`Worker ${i} initialization timed out`));
                 }, 10000); // 10 second timeout
-                
+
                 const initHandler = (event: MessageEvent) => {
                     if (event.data.type === 'ready') {
                         clearTimeout(timeout);
@@ -116,12 +123,12 @@ export class CertificateWorkerPool {
                         resolve();
                     }
                 };
-                
+
                 const errorHandler = (event: ErrorEvent) => {
                     clearTimeout(timeout);
                     reject(new Error(`Worker ${i} error: ${event.message}`));
                 };
-                
+
                 worker.addEventListener('message', initHandler);
                 worker.addEventListener('error', errorHandler);
             });
@@ -164,11 +171,11 @@ export class CertificateWorkerPool {
      */
     async processBatch(
         tasks: WorkerTask[],
-        onProgress?: (completed: number, total: number) => void
-    ): Promise<WorkerResult[]> {
+        onProgress?: (completed: number, total: number, latestResult?: WorkerResult) => void | Promise<void>
+    ): Promise<void> {
         const workerCount = this.workerStates.length;
         const tasksPerWorker = Math.ceil(tasks.length / workerCount);
-        
+
         // Divide tasks equally among workers
         const workerBatches: WorkerTask[][] = [];
         for (let i = 0; i < workerCount; i++) {
@@ -184,30 +191,33 @@ export class CertificateWorkerPool {
 
         // Create promises for each worker's batch
         const batchPromises = workerBatches.map((batch, workerIndex) => {
-            return new Promise<WorkerResult[]>((resolve) => {
+            return new Promise<void>((resolve) => {
                 const state = this.workerStates[workerIndex];
-                
+                let progressQueue = Promise.resolve();
+
                 const handler = (event: MessageEvent) => {
-                    if (event.data.type === 'batchComplete') {
-                        state.worker.removeEventListener('message', handler);
-                        
-                        const results: WorkerResult[] = event.data.results.map((r: WorkerResult) => ({
+                    if (event.data.type === 'itemComplete') {
+                        const r = event.data.result;
+                        const result: WorkerResult = {
                             id: r.id,
                             rowIndex: r.rowIndex,
                             filename: r.filename,
                             blob: r.blob,
                             error: r.error,
-                        }));
-                        
-                        completedCount += results.length;
-                        onProgress?.(completedCount, totalCount);
-                        
-                        resolve(results);
+                        };
+
+                        completedCount++;
+                        progressQueue = progressQueue
+                            .then(() => onProgress?.(completedCount, totalCount, result))
+                            .catch(() => undefined);
+                    } else if (event.data.type === 'batchComplete') {
+                        state.worker.removeEventListener('message', handler);
+                        void progressQueue.finally(resolve);
                     }
                 };
-                
+
                 state.worker.addEventListener('message', handler);
-                
+
                 // Send batch to worker
                 state.worker.postMessage({
                     type: 'generateBatch',
@@ -221,11 +231,7 @@ export class CertificateWorkerPool {
             });
         });
 
-        // Wait for all workers to complete
-        const allResults = await Promise.all(batchPromises);
-        
-        // Flatten results
-        return allResults.flat();
+        await Promise.all(batchPromises);
     }
 
     /**

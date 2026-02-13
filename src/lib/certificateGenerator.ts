@@ -253,7 +253,7 @@ export async function generateCertificate(
             const isLandscape = canvas.width > canvas.height;
             const canvasWidth = canvas.width;
             const canvasHeight = canvas.height;
-            
+
             const pdf = new jsPDF({
                 orientation: isLandscape ? 'landscape' : 'portrait',
                 unit: 'px',
@@ -273,10 +273,3 @@ export async function generateCertificate(
     }
 }
 
-/**
- * Create a safe filename from text
- */
-export function sanitizeFilename(text: string): string {
-    const safe = text.replace(/[^a-zA-Z0-9\s\-_]/g, '');
-    return safe.trim().replace(/\s+/g, '_').substring(0, 50) || 'certificate';
-}

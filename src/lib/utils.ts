@@ -1,6 +1,13 @@
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+import Papa from 'papaparse';
+
 /**
- * Utility functions for certificate generation
+ * Utility for merging Tailwind CSS classes safely
  */
+export function cn(...inputs: ClassValue[]) {
+    return twMerge(clsx(inputs));
+}
 
 /**
  * Download a blob as a file
@@ -18,34 +25,43 @@ export function downloadBlob(blob: Blob, filename: string) {
 
 /**
  * Parse CSV text into headers and data rows
+ * Uses PapaParse for robust, optimized parsing
  */
 export function parseCsv(text: string): { headers: string[]; data: Record<string, string>[] } {
-    const lines = text.split('\n').filter(line => line.trim());
-    if (lines.length < 2) {
-        throw new Error('CSV must have at least a header row and one data row');
+    const result = Papa.parse<Record<string, string>>(text, {
+        header: true,
+        skipEmptyLines: 'greedy',
+        transformHeader: (header) => header.trim(),
+        transform: (value) => value.trim(),
+    });
+
+    if (result.errors.length > 0 && result.data.length === 0) {
+        throw new Error(result.errors[0].message);
     }
 
-    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-    const data: Record<string, string>[] = [];
-
-    for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-        const row: Record<string, string> = {};
-        headers.forEach((h, idx) => {
-            row[h] = values[idx] || '';
-        });
-        data.push(row);
-    }
-
-    return { headers, data };
+    return {
+        headers: result.meta.fields || [],
+        data: result.data,
+    };
 }
 
 /**
  * Create a safe filename from text
+ * Handles OS-specific reserved characters and cleans whitespace
  */
 export function sanitizeFilename(text: string): string {
-    const safe = text.replace(/[^a-zA-Z0-9\s\-_]/g, '');
-    return safe.trim().replace(/\s+/g, '_').substring(0, 50) || 'certificate';
+    if (!text) return 'certificate';
+
+    // Remove characters that are unsafe for filenames across OSs
+    // eslint-disable-next-line no-control-regex
+    const safe = text.replace(/[<>:"/\\|?*\x00-\x1F]/g, '');
+
+    return safe
+        .trim()
+        .replace(/\s+/g, '_')           // Replace spaces with underscores
+        .replace(/_{2,}/g, '_')         // Remove duplicate underscores
+        .substring(0, 100)              // Reasonable limit
+        || 'certificate';
 }
 
 /**

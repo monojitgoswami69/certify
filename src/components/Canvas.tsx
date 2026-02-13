@@ -9,7 +9,6 @@
  */
 
 import { useRef, useEffect, useCallback, useState } from 'react';
-import { RotateCcw } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 import { isFontLoaded, loadGoogleFont, getFontFamilyCSS, getGoogleFont } from '../lib/googleFonts';
 import type { TextBox } from '../types';
@@ -46,7 +45,6 @@ export function Canvas() {
         deleteBox,
         setActiveBox,
         setDisplayScale,
-        reset,
     } = useAppStore();
 
     const [dragMode, setDragMode] = useState<DragMode>('none');
@@ -154,7 +152,7 @@ export function Canvas() {
             ctx.beginPath();
             ctx.roundRect(displayBox.x, displayBox.y - labelHeight - 2, labelWidth, labelHeight, 4);
             ctx.fill();
-            
+
             ctx.strokeStyle = isActive ? '#fbbf24' : '#38bdf8';
             ctx.lineWidth = 2;
             ctx.stroke();
@@ -169,15 +167,15 @@ export function Canvas() {
         if (previewEnabled && previewText && 'fontSize' in box) {
             let currentFontSize = box.fontSize;
             const minFontSize = 10;
-            
+
             const previewFontFamily = fontPreview?.boxId === box.id ? fontPreview.fontFamily : null;
             const actualFontFamily = 'fontFamily' in box ? box.fontFamily : '';
             const useFontFamily = previewFontFamily || actualFontFamily;
-            
-            const fontFamily = useFontFamily 
+
+            const fontFamily = useFontFamily
                 ? getFontFamilyCSS(useFontFamily, getGoogleFont(useFontFamily)?.category)
                 : 'system-ui, sans-serif';
-            
+
             if (useFontFamily && !isFontLoaded(useFontFamily)) {
                 loadGoogleFont(useFontFamily);
             }
@@ -196,7 +194,10 @@ export function Canvas() {
             }
 
             const displayFontSize = currentFontSize * displayScale;
+
+            // Build font string
             ctx.font = `${displayFontSize}px ${fontFamily}`;
+
             ctx.fillStyle = box.fontColor;
             const textHeight = displayFontSize;
 
@@ -232,11 +233,13 @@ export function Canvas() {
         if (isActive && 'id' in box) {
             const handles = getHandlePositions(displayBox);
             ctx.fillStyle = '#4f46e5';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
 
+            const size = HANDLE_SIZE; // Rectangular handles
             Object.values(handles).forEach(({ x, y }) => {
-                ctx.beginPath();
-                ctx.arc(x, y, HANDLE_SIZE / 2, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.fillRect(x - size / 2, y - size / 2, size, size);
+                ctx.strokeRect(x - size / 2, y - size / 2, size, size);
             });
         }
     }, [displayScale, previewEnabled, fontPreview]);
@@ -253,8 +256,8 @@ export function Canvas() {
         // Draw inactive boxes
         boxes.forEach((box) => {
             if (box.id !== activeBoxId) {
-                const previewText = csvData.length > 0 && box.field 
-                    ? csvData[0][box.field] || '' 
+                const previewText = csvData.length > 0 && box.field
+                    ? csvData[0][box.field] || ''
                     : '';
                 drawBox(ctx, box, false, previewText);
             }
@@ -263,8 +266,8 @@ export function Canvas() {
         // Draw active box
         const activeBox = boxes.find(b => b.id === activeBoxId);
         if (activeBox) {
-            const previewText = csvData.length > 0 && activeBox.field 
-                ? csvData[0][activeBox.field] || '' 
+            const previewText = csvData.length > 0 && activeBox.field
+                ? csvData[0][activeBox.field] || ''
                 : '';
             drawBox(ctx, activeBox, true, previewText);
         }
@@ -293,6 +296,19 @@ export function Canvas() {
     // =========================================================================
     // Mouse Handlers
     // =========================================================================
+
+    // Reset cursor when leaving
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const handleMouseLeave = () => {
+            canvas.style.cursor = 'default';
+        };
+
+        canvas.addEventListener('mouseleave', handleMouseLeave);
+        return () => canvas.removeEventListener('mouseleave', handleMouseLeave);
+    }, []);
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         if (!templateImage) return;
@@ -334,71 +350,138 @@ export function Canvas() {
             }
         }
 
-        // Start drawing new box
-        setActiveBox(null);
-        setDragMode('draw');
-        setDragStart({ x, y });
-        setTempBox({ x, y, w: 0, h: 0 });
-    }, [templateImage, boxes, activeBoxId, screenToImage, setActiveBox]);
+        // Start drawing new box - ONLY if data is imported
+        if (csvData.length > 0) {
+            setActiveBox(null);
+            setDragMode('draw');
+            setDragStart({ x, y });
+            setTempBox({ x, y, w: 0, h: 0 });
+        }
+    }, [templateImage, boxes, activeBoxId, screenToImage, setActiveBox, csvData.length]);
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
-        if (dragMode === 'none') return;
-
         const { x, y } = screenToImage(e.clientX, e.clientY);
 
-        if (dragMode === 'draw') {
-            const newBox = {
-                x: Math.min(dragStart.x, x),
-                y: Math.min(dragStart.y, y),
-                w: Math.abs(x - dragStart.x),
-                h: Math.abs(y - dragStart.y),
-            };
-            setTempBox(newBox);
-        } else if (dragMode === 'move' && originalBox) {
-            const dx = x - dragStart.x;
-            const dy = y - dragStart.y;
-            updateBox(originalBox.id, {
-                x: originalBox.x + dx,
-                y: originalBox.y + dy,
-            });
-        } else if (dragMode === 'resize' && originalBox && activeHandle) {
-            const dx = x - dragStart.x;
-            const dy = y - dragStart.y;
-            let newBox = { ...originalBox };
+        // 1. Logical Updates (Dragging)
+        if (dragMode !== 'none') {
+            if (dragMode === 'draw') {
+                const newBox = {
+                    x: Math.min(dragStart.x, x),
+                    y: Math.min(dragStart.y, y),
+                    w: Math.abs(x - dragStart.x),
+                    h: Math.abs(y - dragStart.y),
+                };
+                setTempBox(newBox);
+            } else if (dragMode === 'move' && originalBox) {
+                const dx = x - dragStart.x;
+                const dy = y - dragStart.y;
+                updateBox(originalBox.id, {
+                    x: originalBox.x + dx,
+                    y: originalBox.y + dy,
+                });
+            } else if (dragMode === 'resize' && originalBox && activeHandle) {
+                const dx = x - dragStart.x;
+                const dy = y - dragStart.y;
+                let newBox = { ...originalBox };
 
-            switch (activeHandle) {
-                case 'nw':
-                    newBox = { ...newBox, x: originalBox.x + dx, y: originalBox.y + dy, w: originalBox.w - dx, h: originalBox.h - dy };
-                    break;
-                case 'n':
-                    newBox = { ...newBox, y: originalBox.y + dy, h: originalBox.h - dy };
-                    break;
-                case 'ne':
-                    newBox = { ...newBox, y: originalBox.y + dy, w: originalBox.w + dx, h: originalBox.h - dy };
-                    break;
-                case 'e':
-                    newBox = { ...newBox, w: originalBox.w + dx };
-                    break;
-                case 'se':
-                    newBox = { ...newBox, w: originalBox.w + dx, h: originalBox.h + dy };
-                    break;
-                case 's':
-                    newBox = { ...newBox, h: originalBox.h + dy };
-                    break;
-                case 'sw':
-                    newBox = { ...newBox, x: originalBox.x + dx, w: originalBox.w - dx, h: originalBox.h + dy };
-                    break;
-                case 'w':
-                    newBox = { ...newBox, x: originalBox.x + dx, w: originalBox.w - dx };
-                    break;
-            }
+                switch (activeHandle) {
+                    case 'nw':
+                        newBox = { ...newBox, x: originalBox.x + dx, y: originalBox.y + dy, w: originalBox.w - dx, h: originalBox.h - dy };
+                        break;
+                    case 'n':
+                        newBox = { ...newBox, y: originalBox.y + dy, h: originalBox.h - dy };
+                        break;
+                    case 'ne':
+                        newBox = { ...newBox, y: originalBox.y + dy, w: originalBox.w + dx, h: originalBox.h - dy };
+                        break;
+                    case 'e':
+                        newBox = { ...newBox, w: originalBox.w + dx };
+                        break;
+                    case 'se':
+                        newBox = { ...newBox, w: originalBox.w + dx, h: originalBox.h + dy };
+                        break;
+                    case 's':
+                        newBox = { ...newBox, h: originalBox.h + dy };
+                        break;
+                    case 'sw':
+                        newBox = { ...newBox, x: originalBox.x + dx, w: originalBox.w - dx, h: originalBox.h + dy };
+                        break;
+                    case 'w':
+                        newBox = { ...newBox, x: originalBox.x + dx, w: originalBox.w - dx };
+                        break;
+                }
 
-            // Ensure minimum size
-            if (newBox.w >= 20 && newBox.h >= 20) {
-                updateBox(originalBox.id, { x: newBox.x, y: newBox.y, w: newBox.w, h: newBox.h });
+                // Ensure minimum size
+                if (newBox.w >= 20 && newBox.h >= 20) {
+                    updateBox(originalBox.id, { x: newBox.x, y: newBox.y, w: newBox.w, h: newBox.h });
+                }
             }
         }
-    }, [dragMode, dragStart, originalBox, activeHandle, screenToImage, updateBox]);
+
+        // 2. Cursor Updates
+        if (canvasRef.current) {
+            const canvas = canvasRef.current;
+
+            // While dragging, fix the cursor to the mode
+            if (dragMode === 'resize' && activeHandle) {
+                const cursorMap: Record<string, string> = {
+                    nw: 'nwse-resize', n: 'ns-resize', ne: 'nesw-resize',
+                    e: 'ew-resize', se: 'nwse-resize', s: 'ns-resize',
+                    sw: 'nesw-resize', w: 'ew-resize'
+                };
+                canvas.style.cursor = cursorMap[activeHandle];
+                return;
+            }
+            if (dragMode === 'move') {
+                canvas.style.cursor = 'move';
+                return;
+            }
+            if (dragMode === 'draw') {
+                canvas.style.cursor = 'crosshair';
+                return;
+            }
+
+            // Idle Hover Logic
+            const activeBox = boxes.find(b => b.id === activeBoxId);
+            if (activeBox) {
+                const handles = getHandlePositions(activeBox);
+                const hitBuffer = HANDLE_SIZE + 4; // Add a small buffer for easier hitting
+
+                for (const [key, pos] of Object.entries(handles)) {
+                    // Calculate distance in screen pixels
+                    const dx = Math.abs(x - pos.x) * displayScale;
+                    const dy = Math.abs(y - pos.y) * displayScale;
+
+                    if (dx < hitBuffer && dy < hitBuffer) {
+                        const cursorMap: Record<string, string> = {
+                            nw: 'nwse-resize', n: 'ns-resize', ne: 'nesw-resize',
+                            e: 'ew-resize', se: 'nwse-resize', s: 'ns-resize',
+                            sw: 'nesw-resize', w: 'ew-resize'
+                        };
+                        canvas.style.cursor = cursorMap[key];
+                        return;
+                    }
+                }
+
+                if (x >= activeBox.x && x <= activeBox.x + activeBox.w &&
+                    y >= activeBox.y && y <= activeBox.y + activeBox.h) {
+                    canvas.style.cursor = 'move';
+                    return;
+                }
+            }
+
+            // Check if hovering over any other box
+            for (const box of boxes) {
+                if (x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h) {
+                    canvas.style.cursor = 'pointer';
+                    return;
+                }
+            }
+
+            // Default
+            canvas.style.cursor = csvData.length > 0 ? 'crosshair' : 'not-allowed';
+        }
+    }, [dragMode, dragStart, originalBox, activeHandle, screenToImage, updateBox, boxes, activeBoxId, csvData.length, displayScale]);
 
     const handleMouseUp = useCallback(() => {
         if (dragMode === 'draw' && tempBox && tempBox.w > 20 && tempBox.h > 20) {
@@ -434,13 +517,21 @@ export function Canvas() {
 
     if (!templateImage) {
         return (
-            <main className="flex-1 flex items-center justify-center bg-slate-100">
-                <div className="text-center">
-                    <div className="w-16 h-16 bg-slate-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                        <span className="text-3xl">📄</span>
+            <main className="flex-1 bg-slate-50 p-8 overflow-hidden">
+                <div className="w-full h-full border-4 border-dotted border-slate-400/50 rounded-2xl flex items-center justify-center bg-transparent relative group">
+                    {/* Subtle aesthetic accents at corners */}
+                    <div className="absolute top-8 left-8 w-4 h-4 border-t-2 border-l-2 border-slate-200 rounded-tl-lg" />
+                    <div className="absolute top-8 right-8 w-4 h-4 border-t-2 border-r-2 border-slate-200 rounded-tr-lg" />
+                    <div className="absolute bottom-8 left-8 w-4 h-4 border-b-2 border-l-2 border-slate-200 rounded-bl-lg" />
+                    <div className="absolute bottom-8 right-8 w-4 h-4 border-b-2 border-r-2 border-slate-200 rounded-br-lg" />
+
+                    <div className="text-center animate-fade-in">
+                        <h2 className="text-2xl font-bold text-slate-600 mb-3 font-serif tracking-tight">Workspace Ready</h2>
+                        <p className="text-slate-500 max-w-sm mx-auto leading-relaxed text-sm font-bold">
+                            Select a certificate template from the sidebar. <br />
+                            Your design workspace will initialize within this area.
+                        </p>
                     </div>
-                    <h2 className="text-lg font-semibold text-slate-700 mb-1">No Template Selected</h2>
-                    <p className="text-sm text-slate-500">Upload a certificate template to get started</p>
                 </div>
             </main>
         );
@@ -459,15 +550,6 @@ export function Canvas() {
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
             />
-
-            {/* Reset Button */}
-            <button
-                onClick={reset}
-                className="absolute bottom-4 right-4 flex items-center gap-2 px-3 py-2 bg-white text-slate-600 rounded-lg shadow-md hover:bg-slate-50 transition-colors text-sm"
-            >
-                <RotateCcw className="w-4 h-4" />
-                Start Over
-            </button>
         </main>
     );
 }

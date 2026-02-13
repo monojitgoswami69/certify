@@ -37,6 +37,8 @@ export function BoxCustomizer() {
         setFontSizeInput(String(activeBox.fontSize));
     }
 
+
+
     // Show placeholder when no boxes exist
     if (!activeBox) {
         if (boxes.length === 0) {
@@ -176,6 +178,8 @@ export function BoxCustomizer() {
                 </div>
             </div>
 
+
+
             {/* Alignment Controls */}
             <div className="space-y-2">
                 <label className="block text-xs font-medium text-slate-500">Alignment</label>
@@ -224,24 +228,24 @@ export function BoxCustomizer() {
             </div>
 
             {/* Position Info */}
-            <div className="p-2 bg-slate-50 rounded-lg">
-                <p className="text-xs text-slate-400 mb-1">Position</p>
-                <div className="grid grid-cols-4 gap-2 text-xs">
-                    <div>
-                        <span className="text-slate-400">X:</span>{' '}
-                        <span className="font-mono text-slate-600">{Math.round(activeBox.x)}</span>
+            <div className="pt-2 pb-0 opacity-80">
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest mb-2 px-1">Position</p>
+                <div className="flex items-center justify-between px-1 text-[11px]">
+                    <div className="flex items-baseline gap-1.5">
+                        <span className="text-slate-400 font-medium">X:</span>
+                        <span className="font-bold text-slate-700 font-mono tracking-tighter">{Math.round(activeBox.x)}</span>
                     </div>
-                    <div>
-                        <span className="text-slate-400">Y:</span>{' '}
-                        <span className="font-mono text-slate-600">{Math.round(activeBox.y)}</span>
+                    <div className="flex items-baseline gap-1.5">
+                        <span className="text-slate-400 font-medium">Y:</span>
+                        <span className="font-bold text-slate-700 font-mono tracking-tighter">{Math.round(activeBox.y)}</span>
                     </div>
-                    <div>
-                        <span className="text-slate-400">W:</span>{' '}
-                        <span className="font-mono text-slate-600">{Math.round(activeBox.w)}</span>
+                    <div className="flex items-baseline gap-1.5">
+                        <span className="text-slate-400 font-medium">W:</span>
+                        <span className="font-bold text-slate-700 font-mono tracking-tighter">{Math.round(activeBox.w)}</span>
                     </div>
-                    <div>
-                        <span className="text-slate-400">H:</span>{' '}
-                        <span className="font-mono text-slate-600">{Math.round(activeBox.h)}</span>
+                    <div className="flex items-baseline gap-1.5">
+                        <span className="text-slate-400 font-medium">H:</span>
+                        <span className="font-bold text-slate-700 font-mono tracking-tighter">{Math.round(activeBox.h)}</span>
                     </div>
                 </div>
             </div>

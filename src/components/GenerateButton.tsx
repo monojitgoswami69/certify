@@ -12,6 +12,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { Download, Loader2, Pause, Play, X, CheckCircle2, AlertCircle, RefreshCw, Clock, Cpu } from 'lucide-react';
 import JSZip from 'jszip';
+import { jsPDF } from 'jspdf';
 import { useAppStore } from '../store/appStore';
 import { downloadBlob, sanitizeFilename, delay } from '../lib/utils';
 import { loadFont } from '../lib/certificateGenerator';
@@ -24,10 +25,9 @@ import type { CsvRow } from '../types';
 
 /**
  * Maximum certificates per ZIP file to avoid memory issues.
- * For 21,000 certificates, this creates ~7 ZIP files of 3000 each.
- * Each ZIP stays under ~3-5GB in memory which is manageable.
+ * Larger chunks reduce number of downloads but increase peak memory during packaging.
  */
-const MAX_CERTS_PER_ZIP = 5000;
+const MAX_BATCH_SIZE_BYTES = 1024 * 1024 * 1024; // 1GB per ZIP part
 
 // =============================================================================
 // Types
@@ -86,6 +86,7 @@ export function GenerateButton() {
         csvData,
         boxes,
         workerCount: configuredWorkerCount,
+        outputFormats,
         setError,
         setGenerationStatus,
     } = useAppStore();
@@ -117,12 +118,12 @@ export function GenerateButton() {
 
     /**
      * Generate certificates in PARALLEL using Web Workers.
-     * Uses ~80% of CPU cores for maximum throughput.
-     * For large batches (>MAX_CERTS_PER_ZIP), creates multiple smaller ZIP files.
+     * Uses Size-Based Batching (1GB per ZIP).
      */
     const generateBatch = useCallback(async (
         records: Array<{ rowIndex: number; row: CsvRow }>,
-        isRetry: boolean = false
+        isRetry: boolean = false,
+        format: 'png' | 'jpg' | 'webp' | 'pdf' = 'jpg'
     ) => {
         if (!templateImage || validBoxes.length === 0) return;
 
@@ -135,20 +136,57 @@ export function GenerateButton() {
         const startTime = Date.now();
         const errors: FailedRecord[] = [];
         let totalGeneratedCount = 0;
-        
-        // Calculate ZIP parts needed
-        const totalZipParts = Math.ceil(records.length / MAX_CERTS_PER_ZIP);
+        let currentZipPart = 1;
 
-        // Phase 1: Load fonts
+        // Phase 0: Estimate Certificate Size and Dynamic Batching
+        setProgress(prev => ({
+            ...prev,
+            currentName: `[${format.toUpperCase()}] Estimating resource requirements...`,
+            status: 'initializing',
+        }));
+
+        let certsPerZip = 2000; // Safe default
+        let estimatedSize = 500 * 1024; // Default 500KB
+
+        try {
+            const probeCanvas = document.createElement('canvas');
+            probeCanvas.width = templateImage.naturalWidth;
+            probeCanvas.height = templateImage.naturalHeight;
+            const probeCtx = probeCanvas.getContext('2d')!;
+            probeCtx.drawImage(templateImage, 0, 0);
+
+            // Format for JSZip depends on extension
+            const probeFormat = format === 'png' ? 'image/png' : (format === 'webp' ? 'image/webp' : 'image/jpeg');
+            const blob = await new Promise<Blob>((resolve) => probeCanvas.toBlob(b => resolve(b!), probeFormat, 0.92));
+            estimatedSize = blob.size;
+
+            // If PDF, wrap it roughly (PDF overhead is ~20% more than JPG)
+            if (format === 'pdf') estimatedSize *= 1.2;
+
+            // Calculate how many fit in target ZIP part size
+            const countPerPart = MAX_BATCH_SIZE_BYTES / estimatedSize;
+
+            // Round down to the nearest 500 for stable batching
+            certsPerZip = Math.max(500, Math.floor(countPerPart / 500) * 500);
+
+            // Cleanup
+            probeCanvas.width = 0;
+            probeCanvas.height = 0;
+        } catch (err) {
+            console.warn('Size estimation failed, using default batching', err);
+        }
+
+        // Calculate ZIP parts needed based on dynamic batch size
+        const totalZipParts = Math.ceil(records.length / certsPerZip);
         setProgress({
             current: 0,
             total: records.length,
-            currentName: 'Loading fonts...',
+            currentName: `[${format.toUpperCase()}] Loading fonts...`,
             status: 'loading-fonts',
             errors: [],
             generated: 0,
-            zipPart: 0,
-            totalZipParts,
+            zipPart: 1,
+            totalZipParts: 1,
             workerCount: 0,
         });
 
@@ -158,26 +196,21 @@ export function GenerateButton() {
         }
 
         // Phase 2: Initialize worker pool
-        // Detect template format from image src or content type
-        const templateMimeType = templateImage.src.includes('data:image/png') 
-            ? 'image/png' 
-            : 'image/jpeg';
-        
         setProgress(prev => ({
             ...prev,
-            currentName: 'Initializing parallel workers...',
+            currentName: `[${format.toUpperCase()}] Initializing parallel workers...`,
             status: 'initializing',
         }));
 
         let workerPool: CertificateWorkerPool;
         let workerCount: number;
         let fileExtension: string;
-        
+
         try {
             workerPool = new CertificateWorkerPool();
             workerPoolRef.current = workerPool;
             // Use the configured worker count from settings
-            workerCount = await workerPool.initialize(templateImage, validBoxes, templateMimeType, configuredWorkerCount);
+            workerCount = await workerPool.initialize(templateImage, validBoxes, format, configuredWorkerCount);
             fileExtension = workerPool.getFileExtension();
         } catch (err) {
             const errorMsg = err instanceof Error ? err.message : 'Failed to initialize workers';
@@ -187,168 +220,161 @@ export function GenerateButton() {
             return;
         }
 
-        setProgress(prev => ({
-            ...prev,
+        // Initialize progress with calculated total parts
+        setProgress({
             current: 0,
-            currentName: `Using ${workerCount} parallel workers`,
+            total: records.length,
+            currentName: `[${format.toUpperCase()}] Using ${workerCount} parallel workers`,
             status: 'generating',
+            errors: [],
+            generated: 0,
+            zipPart: 1,
+            totalZipParts,
             workerCount,
-        }));
+        });
 
         if (!isRetry) {
             setLogs({ firstGenerated: new Date(), lastGenerated: null, totalElapsed: 0 });
         }
 
-        // Process in chunks, creating a new ZIP for each chunk
-        for (let chunkStart = 0; chunkStart < records.length; chunkStart += MAX_CERTS_PER_ZIP) {
-            if (abortRef.current) {
-                workerPool.terminate();
-                workerPoolRef.current = null;
-                setProgress(prev => ({ ...prev, status: 'idle' }));
-                setGenerationStatus('idle');
-                return;
-            }
+        // Prepare items for ZIP
+        let currentZip = new JSZip();
+        let currentZipFolder = currentZip.folder('certificates');
+        let currentZipSize = 0;
+        let chunkGeneratedCount = 0;
 
-            const chunkEnd = Math.min(chunkStart + MAX_CERTS_PER_ZIP, records.length);
-            const chunkRecords = records.slice(chunkStart, chunkEnd);
-            const currentZipPart = Math.floor(chunkStart / MAX_CERTS_PER_ZIP) + 1;
+        const tasks = records.map((record, i) => {
+            const displayName = getFilenameBasis(record.row);
+            return {
+                id: i,
+                row: record.row,
+                rowIndex: record.rowIndex,
+                filename: sanitizeFilename(displayName),
+            };
+        });
 
-            // Create fresh ZIP for this chunk
-            let zip: JSZip | null = new JSZip();
-            const certsFolder = zip.folder('certificates');
-            let chunkGeneratedCount = 0;
+        // Create task lookup map for O(1) error handling
+        const taskMap = new Map(tasks.map(t => [t.id, t]));
 
-            setProgress(prev => ({
-                ...prev,
-                zipPart: currentZipPart,
-                currentName: `Processing batch ${currentZipPart}/${totalZipParts}...`,
-            }));
+        // Helper to finalize and download a ZIP part
+        const finalizeZip = async () => {
+            if (chunkGeneratedCount === 0 || !currentZip) return;
 
-            // Prepare tasks for parallel processing
-            const tasks = chunkRecords
-                .map((record, i) => {
-                    const displayName = getFilenameBasis(record.row);
-                    const hasContent = validBoxes.some(box => record.row[box.field]?.trim());
-                    
-                    if (!hasContent) {
-                        // Track empty records as errors immediately
-                        errors.push({ 
-                            rowIndex: record.rowIndex, 
-                            name: displayName || '(empty)', 
-                            row: record.row, 
-                            error: 'All text fields are empty' 
-                        });
-                        return null;
-                    }
-
-                    return {
-                        id: chunkStart + i,
-                        row: record.row,
-                        rowIndex: record.rowIndex,
-                        filename: sanitizeFilename(displayName),
-                    };
-                })
-                .filter((task): task is NonNullable<typeof task> => task !== null);
-
-            // Process entire chunk with batch-based workers
-            // Each worker receives an equal portion of the work
-            const results = await workerPool.processBatch(tasks, (completed, _total) => {
-                setProgress(prev => ({
-                    ...prev,
-                    current: chunkStart + completed,
-                    generated: totalGeneratedCount + completed,
-                    currentName: `${totalGeneratedCount + completed} generated (${workerCount} workers)`,
-                }));
-                
-                setLogs(prev => ({
-                    ...prev,
-                    lastGenerated: new Date(),
-                    totalElapsed: Date.now() - startTime,
-                }));
-            });
-
-            // Process results
-            for (const result of results) {
-                if (result.error) {
-                    const task = tasks.find(t => t.id === result.id);
-                    errors.push({
-                        rowIndex: result.rowIndex,
-                        name: result.filename,
-                        row: task?.row || {},
-                        error: result.error,
-                    });
-                } else if (result.blob && certsFolder) {
-                    // Add to ZIP
-                    certsFolder.file(`${result.filename}.${fileExtension}`, result.blob);
-                    chunkGeneratedCount++;
-                    totalGeneratedCount++;
-                }
-            }
+            const zipFileName = totalZipParts > 1
+                ? `certificates_${format}_part${currentZipPart}_of_${totalZipParts}.zip`
+                : `certificates_${format}.zip`;
 
             setProgress(prev => ({
                 ...prev,
-                current: chunkEnd,
-                generated: totalGeneratedCount,
-                errors: errors,
-                currentName: `${totalGeneratedCount} generated (${workerCount} workers)`,
+                status: 'zipping',
+                currentName: `[${format.toUpperCase()}] Packaging Part ${currentZipPart}/${totalZipParts}...`,
             }));
 
-            // Generate and download this chunk's ZIP
-            if (chunkGeneratedCount > 0 && !abortRef.current) {
-                const zipFileName = totalZipParts > 1
-                    ? `certificates_part${currentZipPart}_of_${totalZipParts}${isRetry ? '_retry' : ''}.zip`
-                    : `certificates${isRetry ? '_retry' : ''}.zip`;
+            try {
+                const zipBlob = await currentZip.generateAsync({
+                    type: 'blob',
+                    compression: 'STORE',  // NO COMPRESSION (Level 0) - Fastest
+                    streamFiles: true,
+                });
+                downloadBlob(zipBlob, zipFileName);
+                await delay(300); // Give browser time to GC
+            } catch {
+                setError(`Failed to create ZIP part ${currentZipPart}`);
+            }
 
-                setProgress(prev => ({
-                    ...prev,
-                    status: 'zipping',
-                    currentName: `Creating ZIP ${currentZipPart}/${totalZipParts}...`,
-                }));
+            // Reset for next part - Critical for memory
+            currentZip = null as any;
+            currentZipFolder = null as any;
+            await delay(500); // Force pause for GC
 
-                try {
-                    const zipBlob = await zip.generateAsync({
-                        type: 'blob',
-                        compression: 'STORE', // No compression for speed - images are already compressed
-                        streamFiles: true,
+            currentZip = new JSZip();
+            currentZipFolder = currentZip.folder('certificates');
+            currentZipSize = 0;
+            chunkGeneratedCount = 0;
+            currentZipPart++;
+
+            setProgress(prev => ({ ...prev, status: 'generating', zipPart: currentZipPart }));
+        };
+
+        let lastUpdate = Date.now();
+
+        // INTERLEAVED PROCESSING: Process each result as it arrives to maximize throughput
+        await workerPool.processBatch(tasks, async (completed, total, latestResult) => {
+            const now = Date.now();
+
+            // 1. Process the latest result immediately (Interleaved)
+            if (latestResult && !latestResult.error && latestResult.blob && currentZipFolder) {
+                let finalBlob = latestResult.blob;
+                if (format === 'pdf') {
+                    const isLandscape = templateImage.naturalWidth > templateImage.naturalHeight;
+                    const pdf = new jsPDF({
+                        orientation: isLandscape ? 'landscape' : 'portrait',
+                        unit: 'px',
+                        format: [templateImage.naturalWidth, templateImage.naturalHeight]
                     });
-                    downloadBlob(zipBlob, zipFileName);
-
-                    // Release ZIP memory
-                    zip = null;
-                    await delay(100);
-
-                } catch {
-                    setError(`Failed to create ZIP file (part ${currentZipPart})`);
+                    const arrayBuffer = await latestResult.blob.arrayBuffer();
+                    pdf.addImage(new Uint8Array(arrayBuffer), 'JPEG', 0, 0, templateImage.naturalWidth, templateImage.naturalHeight);
+                    finalBlob = pdf.output('blob');
                 }
+
+                currentZipSize += finalBlob.size;
+                currentZipFolder.file(`${latestResult.filename}.${format === 'pdf' ? 'pdf' : fileExtension}`, finalBlob);
+                latestResult.blob = undefined;
+                chunkGeneratedCount++;
+                totalGeneratedCount++;
+
+                // Trigger dynamic split (based on count OR the 1GB size threshold)
+                // CRITICAL: Immediately finalize and release memory
+                if (chunkGeneratedCount >= certsPerZip || currentZipSize >= MAX_BATCH_SIZE_BYTES) {
+                    await finalizeZip();
+                }
+            } else if (latestResult?.error) {
+                const task = taskMap.get(latestResult.id);
+                errors.push({
+                    rowIndex: latestResult.rowIndex,
+                    name: latestResult.filename,
+                    row: task?.row || {},
+                    error: latestResult.error,
+                });
             }
 
-            // Reset status for next chunk if there are more
-            if (chunkEnd < records.length) {
+            // 2. Throttle UI updates
+            if (now - lastUpdate > 100 || completed === total) {
+                lastUpdate = now;
                 setProgress(prev => ({
                     ...prev,
-                    status: 'generating',
+                    current: completed,
+                    generated: totalGeneratedCount,
+                    totalZipParts,
+                    currentName: `[${format.toUpperCase()}] ${completed} generated (${Math.round(currentZipSize / 1024 / 1024)}MB / 1GB batch)`,
                 }));
+                setLogs(prev => ({ ...prev, lastGenerated: new Date(), totalElapsed: now - startTime }));
             }
+        });
+
+        // Final cleanup for any leftovers
+        if (!abortRef.current && chunkGeneratedCount > 0) {
+            await finalizeZip();
         }
 
-        // Cleanup worker pool
+        // Cleanup
         workerPool.terminate();
         workerPoolRef.current = null;
 
-        setProgress(prev => ({ ...prev, status: 'completed' }));
+        setProgress(prev => ({ ...prev, status: 'completed', totalZipParts: currentZipPart - 1 }));
         setGenerationStatus('completed');
         setRetryQueue(errors);
 
-        setLogs(prev => ({
-            ...prev,
-            totalElapsed: Date.now() - startTime,
-        }));
+        setLogs(prev => ({ ...prev, totalElapsed: Date.now() - startTime }));
     }, [templateImage, boxes, validBoxes, getFilenameBasis, setError, setGenerationStatus, configuredWorkerCount]);
 
     // Event handlers
-    const handleGenerate = () => {
+    const handleGenerate = async () => {
         const records = csvData.map((row, i) => ({ rowIndex: i, row }));
-        generateBatch(records);
+        for (const format of outputFormats) {
+            if (abortRef.current) break;
+            await generateBatch(records, false, format);
+        }
     };
 
     const handleRetry = () => {
@@ -403,11 +429,10 @@ export function GenerateButton() {
             <button
                 onClick={handleGenerate}
                 disabled={!isReady}
-                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${
-                    isReady
-                        ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white hover:from-primary-700 hover:to-primary-800 shadow-lg shadow-primary-500/25'
-                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                }`}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${isReady
+                    ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white hover:from-primary-700 hover:to-primary-800 shadow-lg shadow-primary-500/25'
+                    : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                    }`}
             >
                 <Download className="w-5 h-5" />
                 <span>Generate {csvData.length} Certificate{csvData.length !== 1 ? 's' : ''}</span>
@@ -418,8 +443,8 @@ export function GenerateButton() {
     // Completed state
     if (progress.status === 'completed') {
         // Calculate certificates per second
-        const certsPerSecond = logs.totalElapsed > 0 
-            ? (progress.generated / (logs.totalElapsed / 1000)).toFixed(1) 
+        const certsPerSecond = logs.totalElapsed > 0
+            ? (progress.generated / (logs.totalElapsed / 1000)).toFixed(1)
             : '0';
 
         return (
@@ -502,11 +527,11 @@ export function GenerateButton() {
                         )}
                         <span className="text-sm font-medium text-slate-700">
                             {progress.status === 'loading-fonts' ? 'Loading fonts...' :
-                             progress.status === 'initializing' ? 'Initializing workers...' :
-                             progress.status === 'zipping' 
-                                ? `Creating ZIP${progress.totalZipParts > 1 ? ` (${progress.zipPart}/${progress.totalZipParts})` : ''}...` :
-                             progress.status === 'paused' ? 'Paused' :
-                             'Generating...'}
+                                progress.status === 'initializing' ? 'Initializing workers...' :
+                                    progress.status === 'zipping'
+                                        ? `Creating ZIP${progress.totalZipParts > 1 ? ` (${progress.zipPart}/${progress.totalZipParts})` : ''}...` :
+                                        progress.status === 'paused' ? 'Paused' :
+                                            'Generating...'}
                         </span>
                     </div>
                     <span className="text-sm text-slate-500">
@@ -530,11 +555,14 @@ export function GenerateButton() {
                 )}
 
                 {/* Progress Bar */}
-                <div className="h-2 bg-slate-200 rounded-full overflow-hidden mb-2">
+                <div className="h-2.5 bg-slate-200 rounded-full overflow-hidden mb-2 relative">
                     <div
-                        className="h-full bg-primary-600 transition-all duration-300"
+                        className="h-full bg-gradient-to-r from-primary-500 via-primary-600 to-indigo-600 transition-all duration-500 ease-out relative"
                         style={{ width: `${progressPercent}%` }}
-                    />
+                    >
+                        {/* Shimmer effect */}
+                        <div className="absolute inset-0 bg-white/20 animate-pulse" />
+                    </div>
                 </div>
 
                 {/* Current Item */}
