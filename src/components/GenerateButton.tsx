@@ -102,7 +102,7 @@ export function GenerateButton() {
     const [localPaused, setLocalPaused] = useState(false);
 
     const validBoxes = boxes.filter(b => b.field);
-    const isReady = templateImage && csvData.length > 0 && validBoxes.length > 0;
+    const isReady = templateImage && csvData.length > 0 && validBoxes.length > 0 && outputFormats.length > 0;
 
     /**
      * Get the filename basis from a CSV row
@@ -583,18 +583,25 @@ export function GenerateButton() {
 
     // Idle state
     if (progress.status === 'idle') {
+        const needsFormats = isReady === false && templateImage && csvData.length > 0 && validBoxes.length > 0 && outputFormats.length === 0;
+
         return (
-            <button
-                onClick={handleGenerate}
-                disabled={!isReady}
-                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${isReady
-                    ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white hover:from-primary-700 hover:to-primary-800 shadow-lg shadow-primary-500/25'
-                    : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                    }`}
+            <div
+                className="relative"
+                title={needsFormats ? "Please select at least one output type to proceed" : undefined}
             >
-                <Download className="w-5 h-5" />
-                <span>Generate {csvData.length} Certificate{csvData.length !== 1 ? 's' : ''}</span>
-            </button>
+                <button
+                    onClick={handleGenerate}
+                    disabled={!isReady}
+                    className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${isReady
+                        ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white hover:from-primary-700 hover:to-primary-800 shadow-lg shadow-primary-500/25'
+                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                        }`}
+                >
+                    <Download className="w-5 h-5" />
+                    <span>Generate {csvData.length} Certificate{csvData.length !== 1 ? 's' : ''}</span>
+                </button>
+            </div>
         );
     }
 

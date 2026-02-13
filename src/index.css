@@ -20,6 +20,7 @@
 
 body {
   font-weight: 700;
+  overflow-x: hidden;
 }
 
 /* Custom scrollbar */
@@ -124,6 +125,99 @@ body {
 .animate-drift-fade {
   animation: drift-fade 4s ease-in-out infinite alternate;
   will-change: transform, opacity;
+}
+
+@keyframes page-out {
+  0% {
+    opacity: 1;
+    filter: blur(0px);
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    filter: blur(20px);
+    transform: scale(1.1);
+  }
+}
+
+@keyframes page-in {
+  0% {
+    opacity: 0;
+    filter: blur(20px);
+    transform: scale(0.9);
+  }
+
+  100% {
+    opacity: 1;
+    filter: blur(0px);
+    transform: scale(1);
+  }
+}
+
+@keyframes shutter-in {
+  0% {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scaleY(1);
+    opacity: 0;
+  }
+}
+
+.animate-page-out {
+  animation: page-out 0.8s cubic-bezier(0.7, 0, 0.3, 1) forwards;
+}
+
+.animate-page-in {
+  animation: page-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-shutter {
+  animation: shutter-in 1.2s cubic-bezier(0.7, 0, 0.3, 1) forwards;
+}
+
+@keyframes page-back-out {
+  0% {
+    opacity: 1;
+    filter: blur(0px);
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    filter: blur(25px);
+    transform: scale(0.8);
+  }
+}
+
+@keyframes page-back-in {
+  0% {
+    opacity: 0;
+    filter: blur(25px);
+    transform: scale(1.2);
+  }
+
+  100% {
+    opacity: 1;
+    filter: blur(0px);
+    transform: scale(1);
+  }
+}
+
+.animate-back-out {
+  animation: page-back-out 0.8s cubic-bezier(0.7, 0, 0.3, 1) forwards;
+}
+
+.animate-back-in {
+  animation: page-back-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .delay-100 {

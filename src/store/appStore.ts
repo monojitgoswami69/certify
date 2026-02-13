@@ -108,7 +108,7 @@ const initialState = {
     fontPreview: null as { boxId: string; fontFamily: string } | null,
     error: null,
     fonts: [] as Font[],
-    outputFormats: ['jpg'] as ('png' | 'jpg' | 'pdf')[],
+    outputFormats: [] as ('png' | 'jpg' | 'pdf')[],
 };
 
 // =============================================================================
