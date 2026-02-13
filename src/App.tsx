@@ -28,6 +28,26 @@ import { LandingPage } from './components/LandingPage';
 // Mobile Overlay Component
 // =============================================================================
 
+function MobileOverlay() {
+    return (
+        <div className="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-center p-12 text-center lg:hidden overflow-hidden">
+            <div className="mb-8">
+                <img src="/certify-logo.webp" alt="Certify" className="w-24 h-24 object-contain mx-auto" />
+            </div>
+
+            <h2 className="text-4xl font-bold text-slate-900 mb-4 tracking-tight font-serif">
+                Desktop Required
+            </h2>
+
+            <p className="text-slate-600 mb-12 leading-relaxed max-w-xs mx-auto text-lg">
+                The certificate designer requires a larger screen for precision editing.
+                Please switch to a desktop for the full experience.
+            </p>
+
+        </div>
+    );
+}
+
 
 
 // =============================================================================
@@ -376,6 +396,9 @@ export default function App() {
 
     return (
         <div className={`h-screen flex flex-col lg:flex-row bg-slate-50 transition-all duration-700 ${editorClasses} overflow-hidden`}>
+            {/* Mobile Splash Screen / Overlay */}
+            <MobileOverlay />
+
             {/* Desktop Sidebar (Left) */}
             <aside className="hidden lg:flex flex-col w-[420px] bg-white border-r border-slate-200 overflow-y-auto px-5 py-4 space-y-4 flex-shrink-0">
                 <div className="pb-4 border-b border-slate-100 mb-2">

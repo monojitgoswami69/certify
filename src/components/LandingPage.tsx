@@ -29,14 +29,14 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
                 </div>
 
                 <div className="max-w-4xl mx-auto space-y-8">
-                    <h1 className="text-6xl md:text-7xl font-bold tracking-tight text-slate-900 leading-[1.1] opacity-0 animate-slide-up font-serif">
+                    <h1 className="text-4xl md:text-7xl font-bold tracking-tight text-slate-900 leading-[1.1] opacity-0 animate-slide-up font-serif">
                         Generate Mass <br />
                         <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary-600 via-indigo-600 to-violet-600">
                             Certificates in Seconds
                         </span>
                     </h1>
 
-                    <p className="text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed opacity-0 animate-slide-up delay-100">
+                    <p className="text-lg md:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed opacity-0 animate-slide-up delay-100">
                         A powerful, 100% client-side tool to design and batch generate
                         personalized certificates from CSV data. No backend, no sign ins, just pure productivity.
                     </p>
@@ -44,7 +44,7 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4 opacity-0 animate-slide-up delay-200">
                         <button
                             onClick={onStart}
-                            className="w-full sm:w-auto px-10 py-4 bg-gradient-to-r from-primary-600 via-indigo-600 to-violet-600 text-white rounded-2xl font-bold text-xl hover:shadow-2xl hover:shadow-primary-500/30 hover:scale-[1.02] transition-all active:scale-95 flex items-center justify-center gap-3 group cursor-pointer uppercase tracking-wider"
+                            className="w-full sm:w-auto px-10 py-4 bg-gradient-to-r from-primary-600 via-indigo-600 to-violet-600 text-white rounded-2xl font-bold text-lg md:text-xl hover:shadow-2xl hover:shadow-primary-500/30 hover:scale-[1.02] transition-all active:scale-95 flex items-center justify-center gap-3 group cursor-pointer uppercase tracking-wider"
                             style={{ fontFamily: "'Nova Mono', monospace" }}
                         >
                             ACCESS NOW
@@ -109,7 +109,7 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
                             >
                                 Process Workflow
                             </h2>
-                            <h3 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-600 font-serif">
+                            <h3 className="text-2xl md:text-4xl font-bold tracking-tight text-slate-600 font-serif">
                                 Simple steps to mass production
                             </h3>
                         </div>
@@ -167,13 +167,13 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
                     <div className="absolute bottom-0 left-0 w-80 h-80 bg-indigo-200/20 rounded-full blur-[80px] -ml-40 -mb-40 group-hover:bg-indigo-300/30 transition-colors duration-700" />
 
                     <div className="relative z-10 space-y-6">
-                        <h2 className="text-4xl md:text-5xl font-bold text-slate-900 font-serif">Ready to generate?</h2>
-                        <p className="text-slate-500 text-lg max-w-xl mx-auto leading-relaxed">
+                        <h2 className="text-3xl md:text-5xl font-bold text-slate-900 font-serif">Ready to generate?</h2>
+                        <p className="text-slate-500 text-base md:text-lg max-w-xl mx-auto leading-relaxed">
                             Join CERTIFY now to generate high-quality certificates at scale in seconds.
                         </p>
                         <button
                             onClick={onStart}
-                            className="bg-gradient-to-r from-primary-600 via-indigo-600 to-violet-600 text-white px-10 py-4 rounded-2xl font-bold text-xl hover:shadow-2xl hover:shadow-primary-500/30 hover:scale-[1.02] transition-all active:scale-95 flex items-center justify-center gap-3 mx-auto cursor-pointer uppercase tracking-wider"
+                            className="bg-gradient-to-r from-primary-600 via-indigo-600 to-violet-600 text-white px-10 py-4 rounded-2xl font-bold text-lg md:text-xl hover:shadow-2xl hover:shadow-primary-500/30 hover:scale-[1.02] transition-all active:scale-95 flex items-center justify-center gap-3 mx-auto cursor-pointer uppercase tracking-wider"
                             style={{ fontFamily: "'Nova Mono', monospace" }}
                         >
                             START GENERATING
