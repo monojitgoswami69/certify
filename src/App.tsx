@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { FileSpreadsheet, Eye, EyeOff, X, Image, RotateCcw } from 'lucide-react';
+import { FileSpreadsheet, Eye, EyeOff, X, Image, RotateCcw, ArrowLeft } from 'lucide-react';
 import { StepCard } from './components/StepCard';
 import { TemplateUpload } from './components/TemplateUpload';
 import { CsvUpload } from './components/CsvUpload';
@@ -77,6 +77,56 @@ export default function App() {
     const [showCsvPreview, setShowCsvPreview] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
     const [currentView, setCurrentView] = useState<'landing' | 'editor'>('landing');
+    const [isTransitioning, setIsTransitioning] = useState(false);
+    const [transitionStep, setTransitionStep] = useState<'idle' | 'exiting' | 'entering' | 'exiting-back' | 'entering-back'>('idle');
+
+    const handleStart = async () => {
+        if (isTransitioning) return;
+
+        // Push history state so browser back button works
+        window.history.pushState({ view: 'editor' }, '');
+
+        setIsTransitioning(true);
+        setTransitionStep('exiting');
+
+        await new Promise(r => setTimeout(r, 700));
+
+        setCurrentView('editor');
+        setTransitionStep('entering');
+
+        await new Promise(r => setTimeout(r, 800));
+
+        setIsTransitioning(false);
+        setTransitionStep('idle');
+    };
+
+    const handleExit = async () => {
+        if (isTransitioning || currentView === 'landing') return;
+
+        setIsTransitioning(true);
+        setTransitionStep('exiting-back');
+
+        await new Promise(r => setTimeout(r, 700));
+
+        setCurrentView('landing');
+        setTransitionStep('entering-back');
+
+        await new Promise(r => setTimeout(r, 800));
+
+        setIsTransitioning(false);
+        setTransitionStep('idle');
+    };
+
+    // Listen for browser back button
+    useEffect(() => {
+        const onPopState = (e: PopStateEvent) => {
+            if (currentView === 'editor' && (!e.state || e.state.view !== 'editor')) {
+                handleExit();
+            }
+        };
+        window.addEventListener('popstate', onPopState);
+        return () => window.removeEventListener('popstate', onPopState);
+    }, [currentView, isTransitioning]);
 
     // Get max workers — capped to half of reported cores (browser JPEG pool saturates at ~half)
     const maxWorkers = typeof navigator !== 'undefined'
@@ -121,7 +171,16 @@ export default function App() {
     const step5Status = !step4Complete ? 'pending' : 'active';
 
     if (currentView === 'landing') {
-        return <LandingPage onStart={() => setCurrentView('editor')} />;
+        const landingClasses = transitionStep === 'exiting'
+            ? 'animate-page-out'
+            : transitionStep === 'entering-back'
+                ? 'animate-back-in'
+                : '';
+        return (
+            <div className={landingClasses}>
+                <LandingPage onStart={handleStart} />
+            </div>
+        );
     }
 
     // Show mobile overlay on small screens ONLY for the editor
@@ -129,21 +188,34 @@ export default function App() {
         return <MobileOverlay />;
     }
 
+    const editorClasses = transitionStep === 'entering'
+        ? 'animate-page-in'
+        : transitionStep === 'exiting-back'
+            ? 'animate-back-out'
+            : '';
+
     return (
-        <div className="h-screen flex bg-slate-50">
+        <div className={`h-screen flex bg-slate-50 transition-all duration-700 ${editorClasses}`}>
             {/* Sidebar */}
             <aside className="w-[420px] bg-white border-r border-slate-200 overflow-y-auto p-4 space-y-4 flex-shrink-0">
                 {/* Header */}
                 <div className="pb-4 border-b border-slate-100 mb-2 flex items-center justify-between px-2">
                     <div className="flex flex-col items-start">
                         <div className="flex items-center gap-2 mb-1">
+                            <button
+                                onClick={handleExit}
+                                className="p-1.5 -ml-1.5 hover:bg-slate-100 rounded-lg transition-colors group"
+                                title="Exit to Landing Page"
+                            >
+                                <ArrowLeft className="w-5 h-5 text-slate-400 group-hover:text-slate-600" />
+                            </button>
                             <img src="/certify-logo.webp" alt="Certify Logo" className="w-8 h-8 object-contain" />
-                            <h1
-                                className="font-bold text-slate-800 tracking-tight"
-                                style={{ fontFamily: "'Nova Mono', monospace", fontSize: '24px' }}
+                            <span
+                                className="font-bold tracking-tight text-slate-800"
+                                style={{ fontFamily: "'Nova Mono', monospace", fontSize: '20px' }}
                             >
                                 CERTIFY
-                            </h1>
+                            </span>
                         </div>
                         <p className="text-xs text-slate-500 font-bold">Mass certificate generator</p>
                     </div>
@@ -238,39 +310,41 @@ export default function App() {
                 {/* Step 5: Generate */}
                 <StepCard number={5} title="Download Certificates" status={step5Status}>
                     {/* Format Selector */}
-                    <div className="mb-4 p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                        <label className="block text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-widest text-center">Output Formats</label>
-                        <div className="grid grid-cols-3 gap-1.5">
+                    <div className="mb-4 p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                        <label className="block text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-widest text-center">Output Formats</label>
+                        <div className="grid grid-cols-3 gap-1 p-1 bg-white border border-slate-200 rounded-xl">
                             {['png', 'jpg', 'pdf'].map((fmt) => {
                                 const isSelected = outputFormats.includes(fmt as any);
                                 return (
-                                    <button
+                                    <div
                                         key={fmt}
                                         onClick={() => {
                                             const newFormats = isSelected
                                                 ? outputFormats.filter(f => f !== fmt)
                                                 : [...outputFormats, fmt as any];
-                                            if (newFormats.length > 0) setOutputFormats(newFormats);
+                                            setOutputFormats(newFormats);
                                         }}
-                                        className={`flex flex-col items-center gap-1.5 py-2 rounded-xl transition-all duration-300 border ${isSelected
-                                            ? 'bg-white border-primary-100 shadow-sm shadow-primary-500/5'
-                                            : 'bg-transparent border-transparent hover:bg-slate-100/50 text-slate-500'
+                                        className={`flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg transition-all duration-300 cursor-pointer ${isSelected
+                                            ? 'bg-primary-50 ring-1 ring-primary-200'
+                                            : 'hover:bg-slate-50'
                                             }`}
                                     >
-                                        <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center transition-all ${isSelected
+                                        <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${isSelected
                                             ? 'bg-primary-600 border-primary-600'
-                                            : 'bg-white border-slate-300'
+                                            : 'bg-white border-slate-400'
                                             }`}>
-                                            {isSelected && <div className="w-1 h-1 bg-white rounded-full animate-fade-in" />}
+                                            {isSelected && <div className="w-1.5 h-1.5 bg-white rounded-full animate-fade-in" />}
                                         </div>
-                                        <span className={`text-[10px] font-black uppercase tracking-tight ${isSelected ? 'text-slate-900' : 'text-slate-400'}`}>
+                                        <span
+                                            className={`text-[10px] font-black uppercase tracking-tight transition-colors ${isSelected ? 'text-primary-700' : 'text-slate-900'}`}
+                                        >
                                             {fmt}
                                         </span>
-                                    </button>
+                                    </div>
                                 );
                             })}
                         </div>
-                        <p className="text-[9px] text-slate-400 mt-2 italic text-center opacity-70">Select one or more formats</p>
+                        <p className="text-[9px] text-slate-500 mt-2 italic text-center opacity-70 font-bold">Select one or more formats</p>
                     </div>
 
                     {/* Worker count selector - only show when idle */}

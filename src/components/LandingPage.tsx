@@ -44,10 +44,11 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4 opacity-0 animate-slide-up delay-200">
                         <button
                             onClick={onStart}
-                            className="w-full sm:w-auto px-10 py-5 bg-slate-900 text-white rounded-2xl font-bold text-lg hover:bg-slate-800 hover:shadow-2xl hover:shadow-slate-900/20 transition-all active:scale-95 flex items-center justify-center gap-2 group cursor-pointer"
+                            className="w-full sm:w-auto px-10 py-4 bg-gradient-to-r from-primary-600 via-indigo-600 to-violet-600 text-white rounded-2xl font-bold text-xl hover:shadow-2xl hover:shadow-primary-500/30 hover:scale-[1.02] transition-all active:scale-95 flex items-center justify-center gap-3 group cursor-pointer uppercase tracking-wider"
+                            style={{ fontFamily: "'Nova Mono', monospace" }}
                         >
-                            Get Started Now
-                            <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                            ACCESS NOW
+                            <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
                         </button>
                     </div>
                 </div>
@@ -58,31 +59,37 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
                 <div className="max-w-7xl mx-auto">
                     <div className="grid md:grid-cols-3 gap-5">
                         <FeatureCard
+                            index={0}
                             icon={<Zap className="w-6 h-6" />}
                             title="Insanely Fast"
                             description="Uses Web Workers for parallel generation. Generate 1,000+ certificates in literal seconds without locking your browser."
                         />
                         <FeatureCard
+                            index={1}
                             icon={<ShieldCheck className="w-6 h-6" />}
                             title="Private by Design"
                             description="100% client-side. Your template images and recipient data never leave your browser. Perfect for sensitive documents."
                         />
                         <FeatureCard
+                            index={2}
                             icon={<Download className="w-6 h-6" />}
                             title="Bundle & Export"
                             description="Download everything as a single optimized ZIP file. High-quality JPG and PDF formats supported out of the box."
                         />
                         <FeatureCard
+                            index={3}
                             icon={<Globe className="w-6 h-6" />}
                             title="Google Fonts"
-                            description="Access the entire Google Fonts library (1,000+) instantly. Support for all weights and styles."
+                            description="Access the entire Google Fonts library (1,900+) instantly. Support for all weights and styles."
                         />
                         <FeatureCard
+                            index={4}
                             icon={<Box className="w-6 h-6" />}
                             title="Visual Canvas"
                             description="Drag and drop text boxes directly onto your template. Responsive alignment and auto-fitting font sizes."
                         />
                         <FeatureCard
+                            index={5}
                             icon={<Cpu className="w-6 h-6" />}
                             title="No Server Needed"
                             description="Works offline after the first load. All processing happens in your browser for maximum security."
@@ -98,7 +105,7 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
                         <div className="space-y-3">
                             <h2
                                 className="font-bold text-primary-600 uppercase tracking-[0.3em] text-sm pl-[5px]"
-                                style={{ fontFamily: "'Kode Mono', monospace" }}
+                                style={{ fontFamily: "'JetBrains Mono', monospace" }}
                             >
                                 Process Workflow
                             </h2>
@@ -111,7 +118,7 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-8 relative pl-[3px]">
                         <div className="group relative">
                             <div className="space-y-2">
-                                <span className="block text-primary-600 font-mono text-sm tracking-tighter font-bold" style={{ fontFamily: "'Kode Mono', monospace" }}>01. IMPORT</span>
+                                <span className="block text-primary-600 font-mono text-sm tracking-tighter font-bold" style={{ fontFamily: "'JetBrains Mono', monospace" }}>01. IMPORT</span>
                                 <h4 className="text-xl font-bold group-hover:text-primary-700 transition-colors font-square">Upload Template</h4>
                                 <p className="text-slate-500 leading-relaxed text-sm">
                                     Start by choosing your certificate design. Supports high-resolution JPG and PNG formats for crisp printing results.
@@ -121,7 +128,7 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
 
                         <div className="group relative">
                             <div className="space-y-2">
-                                <span className="block text-indigo-600 font-mono text-sm tracking-tighter font-bold" style={{ fontFamily: "'Kode Mono', monospace" }}>02. LOAD DATA</span>
+                                <span className="block text-indigo-600 font-mono text-sm tracking-tighter font-bold" style={{ fontFamily: "'JetBrains Mono', monospace" }}>02. LOAD DATA</span>
                                 <h4 className="text-xl font-bold group-hover:text-indigo-700 transition-colors font-square">Connect CSV</h4>
                                 <p className="text-slate-500 leading-relaxed text-sm">
                                     Import your recipient list. We automatically detect headers like Name, Rank, and Date for easy mapping.
@@ -131,7 +138,7 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
 
                         <div className="group relative">
                             <div className="space-y-2">
-                                <span className="block text-violet-600 font-mono text-sm tracking-tighter font-bold" style={{ fontFamily: "'Kode Mono', monospace" }}>03. DESIGN</span>
+                                <span className="block text-violet-600 font-mono text-sm tracking-tighter font-bold" style={{ fontFamily: "'JetBrains Mono', monospace" }}>03. DESIGN</span>
                                 <h4 className="text-xl font-bold group-hover:text-violet-700 transition-colors font-square">Live Designer</h4>
                                 <p className="text-slate-500 leading-relaxed text-sm">
                                     Drag and drop fields onto the canvas. Adjust fonts, alignments, and colors with a real-time preview of your data.
@@ -141,7 +148,7 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
 
                         <div className="group relative">
                             <div className="space-y-2">
-                                <span className="block text-emerald-600 font-mono text-sm tracking-tighter font-bold" style={{ fontFamily: "'Kode Mono', monospace" }}>04. FINALIZE</span>
+                                <span className="block text-emerald-600 font-mono text-sm tracking-tighter font-bold" style={{ fontFamily: "'JetBrains Mono', monospace" }}>04. FINALIZE</span>
                                 <h4 className="text-xl font-bold group-hover:text-emerald-700 transition-colors font-square">Mass Export</h4>
                                 <p className="text-slate-500 leading-relaxed text-sm">
                                     Download all certificates in seconds. We pack everything into an optimized ZIP file, ready for distribution.
@@ -152,13 +159,12 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
                 </div>
             </section>
 
-            {/* Ready to Generate Section */}
-            <section className="py-10 px-6 overflow-hidden bg-white">
+            <section className="py-16 px-6 overflow-hidden bg-white">
                 <div
-                    className="max-w-5xl mx-auto px-12 py-12 bg-primary-50/50 border border-primary-100 rounded-[3rem] text-center relative group shadow-xl shadow-primary-900/5"
+                    className="max-w-5xl mx-auto px-12 py-16 bg-gradient-to-br from-blue-50 via-primary-50 to-indigo-50 border border-blue-100 rounded-[3rem] text-center relative group shadow-2xl shadow-blue-500/10 overflow-hidden"
                 >
-                    <div className="absolute -top-20 -right-20 w-64 h-64 bg-primary-100/50 rounded-full blur-3xl" />
-                    <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-indigo-100/50 rounded-full blur-3xl" />
+                    <div className="absolute top-0 right-0 w-80 h-80 bg-blue-200/20 rounded-full blur-[80px] -mr-40 -mt-40 group-hover:bg-blue-300/30 transition-colors duration-700" />
+                    <div className="absolute bottom-0 left-0 w-80 h-80 bg-indigo-200/20 rounded-full blur-[80px] -ml-40 -mb-40 group-hover:bg-indigo-300/30 transition-colors duration-700" />
 
                     <div className="relative z-10 space-y-6">
                         <h2 className="text-4xl md:text-5xl font-bold text-slate-900 font-serif">Ready to generate?</h2>
@@ -167,10 +173,11 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
                         </p>
                         <button
                             onClick={onStart}
-                            className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-bold text-lg hover:bg-slate-800 hover:shadow-2xl hover:shadow-slate-900/20 transition-all active:scale-95 flex items-center justify-center gap-2 mx-auto cursor-pointer"
+                            className="bg-gradient-to-r from-primary-600 via-indigo-600 to-violet-600 text-white px-10 py-4 rounded-2xl font-bold text-xl hover:shadow-2xl hover:shadow-primary-500/30 hover:scale-[1.02] transition-all active:scale-95 flex items-center justify-center gap-3 mx-auto cursor-pointer uppercase tracking-wider"
+                            style={{ fontFamily: "'Nova Mono', monospace" }}
                         >
-                            Get Started
-                            <ArrowRight className="w-5 h-5" />
+                            START GENERATING
+                            <ArrowRight className="w-6 h-6" />
                         </button>
                     </div>
                 </div>
@@ -205,9 +212,12 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
     );
 });
 
-function FeatureCard({ icon, title, description }: { icon: React.ReactNode, title: string, description: string }) {
+function FeatureCard({ icon, title, description, index }: { icon: React.ReactNode, title: string, description: string, index: number }) {
     return (
-        <div className="group relative p-6 bg-white rounded-[2rem] border border-slate-300 shadow-sm hover:shadow-2xl hover:shadow-primary-500/10 hover:-translate-y-1 transition-all duration-500">
+        <div
+            className="group relative p-6 bg-white rounded-[2rem] border border-slate-300 shadow-sm hover:shadow-2xl hover:shadow-primary-500/10 hover:-translate-y-1 transition-all duration-500 animate-slide-up opacity-0"
+            style={{ animationDelay: `${index * 100 + 400}ms`, animationFillMode: 'forwards' }}
+        >
             <div className="absolute inset-0 bg-gradient-to-br from-primary-50/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-[2rem]" />
             <div className="relative z-10">
                 <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-primary-600 mb-4 group-hover:bg-primary-600 group-hover:text-white group-hover:rotate-6 transition-all duration-500 shadow-inner">
