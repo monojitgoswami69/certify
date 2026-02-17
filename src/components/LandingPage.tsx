@@ -38,7 +38,7 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
 
                     <p className="text-lg md:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed opacity-0 animate-slide-up delay-100">
                         A powerful, 100% client-side tool to design and batch generate
-                        personalized certificates from CSV data. No backend, no sign ins, just pure productivity.
+                        personalized certificates from CSV data. No sign-ups!
                     </p>
 
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4 opacity-0 animate-slide-up delay-200">
