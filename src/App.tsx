@@ -30,7 +30,7 @@ import { LandingPage } from './components/LandingPage';
 
 function MobileOverlay() {
     return (
-        <div className="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-center p-12 text-center lg:hidden overflow-hidden">
+        <div className="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-center p-12 text-center overflow-hidden">
             <div className="mb-8">
                 <img src="/certify-logo.webp" alt="Certify" className="w-24 h-24 object-contain mx-auto" />
             </div>
@@ -79,6 +79,15 @@ export default function App() {
     const [currentView, setCurrentView] = useState<'landing' | 'editor'>('landing');
     const [isTransitioning, setIsTransitioning] = useState(false);
     const [transitionStep, setTransitionStep] = useState<'idle' | 'exiting' | 'entering' | 'exiting-back' | 'entering-back'>('idle');
+
+    // Mobile detection
+    const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 1024 : false);
+
+    useEffect(() => {
+        const checkMobile = () => setIsMobile(window.innerWidth < 1024);
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
 
     type OutputFormat = 'png' | 'jpg' | 'pdf';
 
@@ -186,6 +195,10 @@ export default function App() {
         : transitionStep === 'exiting-back'
             ? 'animate-back-out'
             : '';
+
+    if (isMobile) {
+        return <MobileOverlay />;
+    }
 
     const brandingHeaderContent = (
         <div className="flex items-center justify-between w-full">
@@ -396,8 +409,6 @@ export default function App() {
 
     return (
         <div className={`h-screen flex flex-col lg:flex-row bg-slate-50 transition-all duration-700 ${editorClasses} overflow-hidden`}>
-            {/* Mobile Splash Screen / Overlay */}
-            <MobileOverlay />
 
             {/* Desktop Sidebar (Left) */}
             <aside className="hidden lg:flex flex-col w-[420px] bg-white border-r border-slate-200 overflow-y-auto px-5 py-4 space-y-4 flex-shrink-0">

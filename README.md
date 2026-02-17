@@ -1,236 +1,126 @@
 # Certify Demo
 
-A **fully client-side** certificate generation tool built with React and TypeScript. Generate personalized certificates in bulk directly in your browser — no backend required.
+Certify Demo is a sophisticated, client-side application engineered for the efficient generation of bulk certificates. Built with React and TypeScript, this tool operates entirely within the browser, eliminating the need for backend infrastructure while ensuring data privacy and rapid processing.
 
-## ✨ Features
+## Overview
 
-- **100% Browser-Based** — No server required, all processing happens locally
-- **Batch Generation** — Generate hundreds of certificates from a CSV file
-- **Google Fonts** — Access to 1,200+ fonts via Google Fonts CDN
-- **Interactive Canvas** — Drag & drop text box positioning
-- **ZIP Download** — Certificates bundled as JPG + PDF in a ZIP file
-- **Pause & Resume** — Control batch generation with pause/resume/cancel
-- **Retry Failed** — Automatically retry failed generations
-- **Live Preview** — See font styling and positioning in real-time
+This application addresses the need for a streamlined, secure, and scalable solution for generating personalized documents. By leveraging modern web technologies, it allows users to map dynamic data from CSV files onto custom image templates, rendering high-fidelity certificates in both raster (JPG/PNG) and vector (PDF) formats.
 
-## 🚀 Getting Started
+## Key Features
+
+- **Client-Side Processing:** All data manipulation and image generation occur locally on the user's machine, ensuring zero latency and maximum privacy.
+- **Batch Processing:** Capable of handling large datasets via CSV import, generating hundreds of unique certificates in a single workflow.
+- **Typography Engine:** Integrated with the Google Fonts library, offering access to over 1,200 typefaces for precise design control.
+- **Interactive Editor:** Features a drag-and-drop interface for intuitive field positioning and styling.
+- **Archive Generation:** Automatically bundles generated assets into a structured ZIP file for convenient download.
+- **Resilience:** Includes robust error handling and a retry mechanism to ensure process completion without data loss.
+
+## Technical Stack
+
+The project utilizes a modern suite of technologies designed for performance and maintainability:
+
+- **Core:** React 19, TypeScript
+- **Build System:** Vite
+- **State Management:** Zustand
+- **Styling:** Tailwind CSS 4
+- **Graphics & PDF:** HTML5 Canvas, jsPDF
+- **Compression:** client-zip
+
+## Getting Started
 
 ### Prerequisites
 
-- Node.js 18+ (recommended: 20+)
-- npm or yarn
+Ensure you have the following installed on your development environment:
+
+- Node.js (Version 18 or higher recommended)
+- npm or yarn package manager
 
 ### Installation
 
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   ```
+
+2. Navigate to the project directory:
+   ```bash
+   cd certify-demo
+   ```
+
+3. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+### Development
+
+To start the local development server:
+
 ```bash
-# Clone the repository
-git clone <repo-url>
-cd certify-demo/frontend
-
-# Install dependencies
-npm install
-
-# Start development server
 npm run dev
 ```
 
-The app will be available at `http://localhost:5173`
+The application will be accessible at `http://localhost:5173`.
 
-### Build for Production
+### Production Build
+
+To compile the application for production deployment:
 
 ```bash
 npm run build
-npm run preview  # Preview production build
 ```
 
-## 📖 How to Use
+To preview the production build locally:
 
-### Step 1: Upload Template
-Upload a certificate template image (JPG, PNG, or WebP). This is your base design with placeholders for dynamic text.
-
-### Step 2: Import Data
-Upload a CSV file with recipient information. The first row should contain column headers (e.g., `Name`, `Email`, `Course`, `Date`).
-
-**Example CSV:**
-```csv
-Name,Course,Date,Certificate ID
-John Doe,Web Development,2025-01-15,CERT-001
-Jane Smith,Data Science,2025-01-15,CERT-002
+```bash
+npm run preview
 ```
 
-### Step 3: Define Text Boxes
-Click and drag on the canvas to create text boxes. Each box represents a field from your CSV that will be placed on the certificate.
+## Usage Guide
 
-### Step 4: Customize Styling
-For each text box, configure:
-- **Field** — Select which CSV column to use
-- **Font** — Choose from 1,200+ Google Fonts
-- **Size** — Font size in pixels
-- **Color** — Text color (hex or picker)
-- **Alignment** — Horizontal (left/center/right) and vertical (top/middle/bottom)
-- **Auto-fit** — Automatically shrink text to fit within box bounds
+1. **Template Upload:** Begin by creating a base certificate design in your preferred graphics software. Upload this image (JPG, PNG, or WebP) to the application.
+2. **Data Import:** Upload a CSV file containing the variable data (e.g., names, dates, course titles). Ensure the first row contains unique headers.
+3. **Layout Configuration:** Use the interactive canvas to draw text zones. Map these zones to the corresponding columns in your CSV file.
+4. **Styling:** Customize the typography, size, color, and alignment for each data field to match your brand guidelines.
+5. **Generation:** Initiate the batch process. The application will render each certificate and compile them into a downloadable ZIP archive.
 
-### Step 5: Generate & Download
-Click "Generate Certificates" to process all rows. Certificates are:
-- Generated as both JPG and PDF
-- Bundled into a ZIP file
-- Automatically downloaded when complete
-
-## 🏗️ Project Structure
+## Project Structure
 
 ```
-frontend/
-├── public/
-│   └── google-fonts.json      # Font metadata (1,200+ fonts)
+certify-demo/
+├── public/                 # Static assets and font metadata
 ├── src/
-│   ├── components/
-│   │   ├── BoxCustomizer.tsx  # Text box property editor
-│   │   ├── Canvas.tsx         # Interactive canvas for positioning
-│   │   ├── CsvUpload.tsx      # CSV file upload & parsing
-│   │   ├── FontSelector.tsx   # Virtualized font dropdown
-│   │   ├── GenerateButton.tsx # Batch generation with progress
-│   │   ├── TemplateUpload.tsx # Template image upload
-│   │   ├── StepCard.tsx       # Step indicator UI
-│   │   └── ...
-│   ├── lib/
-│   │   ├── certificateGenerator.ts  # Core generation logic
-│   │   ├── googleFonts.ts           # Font loading & search
-│   │   └── utils.ts                 # Helper functions
-│   ├── store/
-│   │   └── appStore.ts        # Zustand state management
-│   ├── types/
-│   │   └── index.ts           # TypeScript definitions
-│   ├── App.tsx                # Main application
-│   └── main.tsx               # Entry point
-├── package.json
-├── tsconfig.json
-└── vite.config.ts
+│   ├── components/         # Reusable UI components
+│   ├── lib/                # Core logic for generation and fonts
+│   ├── store/              # State management configuration
+│   ├── types/              # TypeScript definitions
+│   ├── App.tsx             # Main application entry
+│   └── main.tsx            # DOM rendering
+├── package.json            # Dependency manifest
+└── vite.config.ts          # Build configuration
 ```
 
-## 🔧 Technology Stack
+## Deployment
 
-| Technology | Purpose |
-|------------|---------|
-| **React 19** | UI framework |
-| **TypeScript** | Type safety |
-| **Vite** | Build tool & dev server |
-| **Zustand** | Lightweight state management |
-| **Tailwind CSS 4** | Utility-first styling |
-| **jsPDF** | Client-side PDF generation |
-| **client-zip** | Streaming ZIP file creation |
-| **Lucide React** | Icon library |
-| **HTML5 Canvas** | Certificate rendering |
+This application is static and can be deployed to any standard web hosting service.
 
-## 🎨 Font System
+### Vercel
 
-The app uses Google Fonts CDN for instant font loading:
-
-1. **Pre-loaded Metadata** — `google-fonts.json` contains metadata for 1,200+ fonts
-2. **On-Demand Loading** — Fonts are loaded only when selected
-3. **Curated Defaults** — Popular fonts are prioritized in the dropdown
-4. **Search & Filter** — Quickly find fonts by name
-5. **Live Preview** — See fonts applied to canvas in real-time
-
-### Adding Custom Fonts
-
-To add custom fonts, you can:
-
-1. Place font files in `public/fonts/`
-2. Reference them in a CSS `@font-face` rule
-3. The system will recognize locally available fonts
-
-## 📋 CSV Requirements
-
-- **Format**: Standard CSV with comma separation
-- **Headers**: First row must contain column names
-- **Encoding**: UTF-8 recommended
-- **Fields**: Any number of columns; map them to text boxes
-
-### Example Templates
-
-**Event Certificate:**
-```csv
-Name,Event,Date,Location
-John Doe,Tech Conference 2025,January 15,San Francisco
-```
-
-**Course Completion:**
-```csv
-Name,Course,Hours,Instructor,Certificate ID
-Jane Smith,Python Basics,40,Dr. Johnson,CERT-2025-001
-```
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-No environment variables are required — the app runs entirely in the browser.
-
-### Customization
-
-Edit `tailwind.config.js` to customize the theme:
-
-```javascript
-theme: {
-  extend: {
-    colors: {
-      primary: {
-        // Your custom primary color palette
-      }
-    }
-  }
-}
-```
-
-## 🚢 Deployment
-
-### Vercel (Recommended)
+The project includes a `vercel.json` configuration for seamless deployment on Vercel.
 
 ```bash
 npm install -g vercel
 vercel
 ```
 
-A `vercel.json` is included for optimal configuration.
-
 ### Static Hosting
 
-Build and deploy the `dist/` folder to any static hosting:
+After running `npm run build`, the contents of the `dist/` directory can be served via:
 - Netlify
 - GitHub Pages
-- Cloudflare Pages
-- AWS S3 + CloudFront
+- AWS S3 / CloudFront
+- Nginx / Apache
 
-## 🐛 Troubleshooting
+## License
 
-### Fonts not loading
-- Check your internet connection (fonts load from Google CDN)
-- Ensure the font exists in `google-fonts.json`
-- Try a different browser
-
-### Large CSV files slow to process
-- Consider splitting into smaller batches
-- Use the pause/resume feature to manage memory
-- Close other browser tabs to free resources
-
-### PDF generation issues
-- Ensure the template image is not corrupted
-- Try a smaller image size (under 5MB recommended)
-- Check browser console for specific errors
-
-## 📝 License
-
-MIT License — feel free to use for personal or commercial projects.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
----
-
-Built with ❤️ using React, TypeScript, and modern web APIs.
+This project is distributed under the MIT License. It is free for use in both personal and commercial applications.
