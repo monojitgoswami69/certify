@@ -11,7 +11,7 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
             {/* Navigation */}
             <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-slate-100 px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                    <img src="/certify-logo.webp" alt="Certify Logo" className="w-8 h-8 object-contain" />
+                    <img src="/logo/certify-logo.webp" alt="Certify Logo" className="w-8 h-8 object-contain" />
                     <span
                         className="font-bold tracking-tight text-slate-800"
                         style={{ fontFamily: "'Nova Mono', monospace", fontSize: '22px' }}
