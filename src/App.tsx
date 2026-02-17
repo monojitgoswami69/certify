@@ -32,7 +32,7 @@ function MobileOverlay() {
     return (
         <div className="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-center p-12 text-center overflow-hidden">
             <div className="mb-8">
-                <img src="/certify-logo.webp" alt="Certify" className="w-24 h-24 object-contain mx-auto" />
+                <img src="/logo/certify-logo.webp" alt="Certify" className="w-24 h-24 object-contain mx-auto" />
             </div>
 
             <h2 className="text-4xl font-bold text-slate-900 mb-4 tracking-tight font-serif">
@@ -211,7 +211,7 @@ export default function App() {
                     <ArrowLeft className="w-5 h-5 text-slate-400 group-hover:text-slate-600" />
                 </button>
                 <div className="flex items-center gap-2">
-                    <img src="/certify-logo.webp" alt="Certify Logo" className="w-7 h-7 object-contain" />
+                    <img src="/logo/certify-logo.webp" alt="Certify Logo" className="w-7 h-7 object-contain" />
                     <div className="flex flex-col">
                         <span
                             className="font-bold tracking-tight text-slate-800 leading-none"
