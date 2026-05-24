@@ -4,15 +4,17 @@ Certify Demo is a sophisticated, client-side application engineered for the effi
 
 ## Overview
 
-This application addresses the need for a streamlined, secure, and scalable solution for generating personalized documents. By leveraging modern web technologies, it allows users to map dynamic data from CSV files onto custom image templates, rendering high-fidelity certificates in both raster (JPG/PNG) and vector (PDF) formats.
+This application addresses the need for a streamlined, secure, and scalable solution for generating personalized documents. By leveraging modern web technologies, it allows users to map dynamic data from CSV files onto custom image templates, rendering high-fidelity certificates in both raster (JPG/PNG) and vector (PDF) formats entirely in the browser.
 
 ## Key Features
 
-- **Client-Side Processing:** All data manipulation and image generation occur locally on the user's machine, ensuring zero latency and maximum privacy.
-- **Batch Processing:** Capable of handling large datasets via CSV import, generating hundreds of unique certificates in a single workflow.
+- **Client-Side Processing:** All data manipulation and image generation occur locally on the user's machine for maximum privacy.
+- **Batch Processing:** Handles large datasets via CSV import, generating hundreds to thousands of unique certificates in a single workflow.
 - **Typography Engine:** Integrated with the Google Fonts library, offering access to over 1,200 typefaces for precise design control.
 - **Interactive Editor:** Features a drag-and-drop interface for intuitive field positioning and styling.
 - **Archive Generation:** Automatically bundles generated assets into a structured ZIP file for convenient download.
+- **Deduplication:** Skips duplicate certificates when the mapped (printed) fields are identical.
+- **Chunked Output:** Large batches are split into multiple ZIP parts (about 1 GB each) per format to keep memory usage bounded.
 - **Resilience:** Includes robust error handling and a retry mechanism to ensure process completion without data loss.
 
 ## Technical Stack
@@ -44,7 +46,7 @@ Ensure you have the following installed on your development environment:
 
 2. Navigate to the project directory:
    ```bash
-   cd certify-demo
+   cd certify
    ```
 
 3. Install dependencies:
@@ -83,11 +85,13 @@ npm run preview
 3. **Layout Configuration:** Use the interactive canvas to draw text zones. Map these zones to the corresponding columns in your CSV file.
 4. **Styling:** Customize the typography, size, color, and alignment for each data field to match your brand guidelines.
 5. **Generation:** Initiate the batch process. The application will render each certificate and compile them into a downloadable ZIP archive.
+   - If multiple rows produce identical values for the mapped fields, only one certificate is generated.
+   - Large runs may download as multiple ZIP parts per format.
 
 ## Project Structure
 
 ```
-certify-demo/
+certify/
 ├── public/                 # Static assets and font metadata
 ├── src/
 │   ├── components/         # Reusable UI components
@@ -104,15 +108,6 @@ certify-demo/
 
 This application is static and can be deployed to any standard web hosting service.
 
-### Vercel
-
-The project includes a `vercel.json` configuration for seamless deployment on Vercel.
-
-```bash
-npm install -g vercel
-vercel
-```
-
 ### Static Hosting
 
 After running `npm run build`, the contents of the `dist/` directory can be served via:
@@ -121,6 +116,11 @@ After running `npm run build`, the contents of the `dist/` directory can be serv
 - AWS S3 / CloudFront
 - Nginx / Apache
 
+## Browser Notes
+
+- Chrome/Edge/Brave support streaming ZIP writes via the File System Access API; Firefox/Safari fall back to in-memory ZIP creation.
+- Worker count is capped to avoid browser JPEG encoder saturation; lower caps can reduce throughput on high-core CPUs.
+
 ## License
 
-This project is distributed under the MIT License. It is free for use in both personal and commercial applications.
+This project is distributed under the GNU General Public License v3 (GPL-3.0). See [LICENSE](LICENSE) for details.
