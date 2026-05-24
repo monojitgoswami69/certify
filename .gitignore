@@ -25,7 +25,3 @@ dist-ssr
 .venv/
 venv/
 .env
-
-# User data files (may contain PII)
-*.csv
-template.*

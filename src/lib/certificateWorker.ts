@@ -1,22 +1,28 @@
 /**
  * Web Worker for parallel certificate generation
- * 
+ *
  * Each worker receives a BATCH of rows and processes them sequentially.
- * This minimizes postMessage overhead and maximizes cache locality.
- * 
+ * Workers emit ALL selected output formats from a single canvas draw.
+ *
  * OPTIMIZATIONS:
+ * - Template received as Blob → workers decode independently (zero per-worker ImageData copies)
  * - Template cached as ImageBitmap (GPU-accelerated drawing)
  * - Pre-computed font strings per box (zero allocation in hot loop)
  * - Binary search for font sizing (O(log n) vs O(n) measureText calls)
- * - Pipelined encoding: convertToBlob snapshots bitmap immediately,
- *   so we draw cert N+1 while cert N encodes on a background thread
+ * - Multi-format emit per draw: one canvas render → PNG + JPG + PDF blobs
+ * - Pipelined encoding: encodes of cert N overlap with drawing of cert N+1
+ * - PDF assembled inside the worker (parallelized) — no main-thread bottleneck
  * - OffscreenCanvas with desynchronized: true (no display sync overhead)
  * - Reusable canvas (no allocation per certificate)
  */
 
+import { jsPDF } from 'jspdf';
+
 // =============================================================================
-// Types (duplicated here since workers have separate context)
+// Types
 // =============================================================================
+
+type OutputFormat = 'png' | 'jpg' | 'pdf';
 
 interface TextBox {
     id: string;
@@ -45,12 +51,12 @@ interface BatchItem {
 
 interface InitMessage {
     type: 'init';
-    templateImageData: ImageData;
+    templateBlob: Blob;
     templateWidth: number;
     templateHeight: number;
     boxes: TextBox[];
-    outputFormat: string;
-    quality: number;
+    formats: OutputFormat[];
+    jpegQuality: number;
 }
 
 interface GenerateBatchMessage {
@@ -62,7 +68,7 @@ interface BatchResultItem {
     id: number;
     rowIndex: number;
     filename: string;
-    blob?: Blob;
+    blobs?: Partial<Record<OutputFormat, Blob>>;
     error?: string;
 }
 
@@ -71,56 +77,40 @@ interface WorkerResponse {
     result?: BatchResultItem;
 }
 
-// Pre-computed box rendering info (computed once at init, reused for every certificate)
 interface BoxRenderInfo {
     box: TextBox;
-    fontBase: string;   // Pre-built: '"Arial"' — avoids string allocation in hot loop
+    fontBase: string;
     textX: number;
     textAlign: CanvasTextAlign;
 }
 
 // =============================================================================
-// Worker State (cached after initialization)
+// Worker State
 // =============================================================================
 
 let cachedTemplateBitmap: ImageBitmap | null = null;
 let cachedTemplateWidth = 0;
 let cachedTemplateHeight = 0;
 let cachedBoxRenderInfo: BoxRenderInfo[] = [];
-let cachedOutputFormat: string = 'image/jpeg';
-let cachedQuality = 1;
+let cachedFormats: OutputFormat[] = [];
+let cachedJpegQuality = 0.92;
+let cachedPdfOrientation: 'landscape' | 'portrait' = 'landscape';
 
-// Reusable canvas — allocated once, reused for every certificate
 let reusableCanvas: OffscreenCanvas | null = null;
 let reusableCtx: OffscreenCanvasRenderingContext2D | null = null;
 
 // =============================================================================
-// Text Rendering (optimized for speed)
+// Text Rendering
 // =============================================================================
 
-/**
- * Font size cache — avoids repeated measureText calls for same text/box combos.
- * 
- * Key: `textLength:boxW:boxH:maxFontSize:fontFamily`
- * Using text LENGTH (not full text) keeps cache small with high hit rate.
- * Same-length strings have similar widths in most fonts (accurate enough for certificates).
- */
 const fontSizeCache = new Map<string, number>();
 
-/**
- * Find the largest font size that fits text within a box.
- * 
- * Uses BINARY SEARCH: O(log n) measureText calls instead of O(n).
- * For a 72px → 10px range, this is ~6 iterations vs ~31 iterations.
- * Each measureText call costs ~0.1-0.2ms, so this saves ~5ms per text box worst case.
- */
 function findFittingFontSize(
     ctx: OffscreenCanvasRenderingContext2D,
     text: string,
     box: TextBox,
     fontBase: string
 ): number {
-    // Check cache first
     const cacheKey = `${text.length}:${box.w}:${box.h}:${box.fontSize}:${box.fontFamily}`;
     const cached = fontSizeCache.get(cacheKey);
     if (cached !== undefined) return cached;
@@ -131,27 +121,25 @@ function findFittingFontSize(
     const minFontSize = 10;
     const maxFontSize = box.fontSize;
 
-    // Early exit: max font size already fits (common for short text)
     ctx.font = `${maxFontSize}px ${fontBase}`;
     if (ctx.measureText(text).width <= maxW && maxFontSize * 1.2 <= maxH) {
         fontSizeCache.set(cacheKey, maxFontSize);
         return maxFontSize;
     }
 
-    // Binary search for the LARGEST font size that fits
     let low = minFontSize;
     let high = maxFontSize;
     let result = minFontSize;
 
     while (low <= high) {
-        const mid = (low + high) >> 1; // integer division, no allocation
+        const mid = (low + high) >> 1;
         ctx.font = `${mid}px ${fontBase}`;
 
         if (ctx.measureText(text).width <= maxW && mid * 1.2 <= maxH) {
             result = mid;
-            low = mid + 1;  // text fits — try larger
+            low = mid + 1;
         } else {
-            high = mid - 1; // text overflows — try smaller
+            high = mid - 1;
         }
     }
 
@@ -159,10 +147,6 @@ function findFittingFontSize(
     return result;
 }
 
-/**
- * Draw text in a box with specified alignment.
- * Uses pre-computed BoxRenderInfo to avoid redundant calculations.
- */
 function drawTextBox(
     ctx: OffscreenCanvasRenderingContext2D,
     text: string,
@@ -173,12 +157,10 @@ function drawTextBox(
     const box = info.box;
     const fontSize = findFittingFontSize(ctx, text, box, info.fontBase);
 
-    // Set font (findFittingFontSize may have left ctx.font at a different size)
     ctx.font = `${fontSize}px ${info.fontBase}`;
     ctx.fillStyle = box.fontColor;
     ctx.textAlign = info.textAlign;
 
-    // Calculate Y position based on vertical alignment
     let textY: number;
     const vAlign = box.vAlign || 'bottom';
     if (vAlign === 'top') {
@@ -193,26 +175,66 @@ function drawTextBox(
 }
 
 // =============================================================================
-// Batch Certificate Generation
+// PDF Assembly (in-worker, parallelized)
 // =============================================================================
 
-/**
- * Helper to flush a pending encode result.
- * Awaits the blob promise and posts the result to the main thread.
- */
-async function flushPendingResult(
-    blobPromise: Promise<Blob>,
-    item: BatchItem
-): Promise<void> {
+async function buildPdfFromJpeg(jpegBlob: Blob): Promise<Blob> {
+    const arrayBuffer = await jpegBlob.arrayBuffer();
+    const pdf = new jsPDF({
+        orientation: cachedPdfOrientation,
+        unit: 'px',
+        format: [cachedTemplateWidth, cachedTemplateHeight],
+    });
+
+    pdf.addImage(
+        new Uint8Array(arrayBuffer),
+        'JPEG',
+        0, 0,
+        cachedTemplateWidth,
+        cachedTemplateHeight
+    );
+
+    return pdf.output('blob');
+}
+
+// =============================================================================
+// Encode pipeline
+// =============================================================================
+
+interface PendingEncode {
+    item: BatchItem;
+    jpegPromise: Promise<Blob> | null;
+    pngPromise: Promise<Blob> | null;
+}
+
+async function flushPending(pending: PendingEncode): Promise<void> {
+    const { item, jpegPromise, pngPromise } = pending;
     try {
-        const blob = await blobPromise;
+        const blobs: Partial<Record<OutputFormat, Blob>> = {};
+
+        // Resolve PNG and JPEG in parallel
+        const [pngBlob, jpegBlob] = await Promise.all([
+            pngPromise,
+            jpegPromise,
+        ]);
+
+        if (pngBlob && cachedFormats.includes('png')) {
+            blobs.png = pngBlob;
+        }
+        if (jpegBlob && cachedFormats.includes('jpg')) {
+            blobs.jpg = jpegBlob;
+        }
+        if (jpegBlob && cachedFormats.includes('pdf')) {
+            blobs.pdf = await buildPdfFromJpeg(jpegBlob);
+        }
+
         self.postMessage({
             type: 'itemComplete',
             result: {
                 id: item.id,
                 rowIndex: item.rowIndex,
                 filename: item.filename,
-                blob,
+                blobs,
             },
         } as WorkerResponse);
     } catch (error) {
@@ -228,20 +250,10 @@ async function flushPendingResult(
     }
 }
 
-/**
- * Process an entire batch of certificates sequentially with PIPELINED ENCODING.
- * 
- * Pipeline strategy:
- *   convertToBlob() snapshots the canvas bitmap SYNCHRONOUSLY, then encodes
- *   JPEG asynchronously on a browser thread. By starting the encode for cert N
- *   and then immediately drawing cert N+1, we overlap the ~2-4ms drawing time
- *   with the ~15-40ms encoding time. This yields ~5-15% throughput improvement.
- * 
- *   Without pipeline:  [draw A][===encode A===][draw B][===encode B===]
- *   With pipeline:     [draw A][draw B + await A][draw C + await B]...
- *                               [===encode A===  ][===encode B===  ]
- *                               ↑ drawing overlaps with encoding
- */
+// =============================================================================
+// Batch Certificate Generation
+// =============================================================================
+
 async function generateBatch(items: BatchItem[]): Promise<void> {
     if (!cachedTemplateBitmap || !reusableCanvas || !reusableCtx) {
         for (const item of items) {
@@ -259,53 +271,46 @@ async function generateBatch(items: BatchItem[]): Promise<void> {
     }
 
     const ctx = reusableCtx;
+    const canvas = reusableCanvas;
 
-    // Clear font cache periodically to prevent unbounded growth
     if (fontSizeCache.size > 1000) {
         fontSizeCache.clear();
     }
 
-    // Set baseline once (doesn't change between certificates)
     ctx.textBaseline = 'alphabetic';
 
-    // Pipeline state: holds the previous certificate's encode promise
-    let pendingPromise: Promise<Blob> | null = null;
-    let pendingItem: BatchItem | null = null;
+    const needJpeg = cachedFormats.includes('jpg') || cachedFormats.includes('pdf');
+    const needPng = cachedFormats.includes('png');
+
+    let pending: PendingEncode | null = null;
 
     for (const item of items) {
         try {
-            // ── DRAW: Render this certificate onto the reusable canvas ──
+            // DRAW
             ctx.drawImage(cachedTemplateBitmap, 0, 0);
-
             for (const info of cachedBoxRenderInfo) {
                 const text = item.row[info.box.field] || '';
                 drawTextBox(ctx, text, info);
             }
 
-            // ── ENCODE: Snapshot bitmap + start async JPEG encoding ──
-            // convertToBlob copies the bitmap synchronously, then encodes
-            // on a browser thread. Safe to draw new content immediately after.
-            const blobPromise = reusableCanvas.convertToBlob({
-                type: cachedOutputFormat,
-                quality: cachedQuality,
-            });
+            // ENCODE (start all formats; they share the canvas snapshot taken synchronously)
+            const jpegPromise = needJpeg
+                ? canvas.convertToBlob({ type: 'image/jpeg', quality: cachedJpegQuality })
+                : null;
+            const pngPromise = needPng
+                ? canvas.convertToBlob({ type: 'image/png' })
+                : null;
 
-            // ── FLUSH: While current cert encodes, post the PREVIOUS result ──
-            // This overlaps the previous cert's encoding with current cert's drawing.
-            if (pendingPromise && pendingItem) {
-                await flushPendingResult(pendingPromise, pendingItem);
+            // FLUSH PREVIOUS while current encodes
+            if (pending) {
+                await flushPending(pending);
             }
 
-            // Current becomes pending for next iteration
-            pendingPromise = blobPromise;
-            pendingItem = item;
-
+            pending = { item, jpegPromise, pngPromise };
         } catch (error) {
-            // Flush any pending result before reporting this error
-            if (pendingPromise && pendingItem) {
-                await flushPendingResult(pendingPromise, pendingItem);
-                pendingPromise = null;
-                pendingItem = null;
+            if (pending) {
+                await flushPending(pending);
+                pending = null;
             }
 
             self.postMessage({
@@ -320,9 +325,8 @@ async function generateBatch(items: BatchItem[]): Promise<void> {
         }
     }
 
-    // ── FLUSH LAST: Post the final certificate's result ──
-    if (pendingPromise && pendingItem) {
-        await flushPendingResult(pendingPromise, pendingItem);
+    if (pending) {
+        await flushPending(pending);
     }
 }
 
@@ -334,14 +338,15 @@ self.onmessage = async (event: MessageEvent<InitMessage | GenerateBatchMessage>)
     const message = event.data;
 
     if (message.type === 'init') {
-        // Cache template as ImageBitmap for GPU-accelerated drawing
-        cachedTemplateBitmap = await createImageBitmap(message.templateImageData);
+        // Decode the shared template Blob into an ImageBitmap.
+        // The Blob ref was sent by postMessage — zero-copy across workers.
+        cachedTemplateBitmap = await createImageBitmap(message.templateBlob);
         cachedTemplateWidth = message.templateWidth;
         cachedTemplateHeight = message.templateHeight;
-        cachedOutputFormat = message.outputFormat;
-        cachedQuality = message.quality;
+        cachedFormats = message.formats;
+        cachedJpegQuality = message.jpegQuality;
+        cachedPdfOrientation = message.templateWidth > message.templateHeight ? 'landscape' : 'portrait';
 
-        // Pre-compute render info for each box (done ONCE, reused for every certificate)
         cachedBoxRenderInfo = message.boxes
             .filter(box => box.field)
             .map(box => {
@@ -360,15 +365,13 @@ self.onmessage = async (event: MessageEvent<InitMessage | GenerateBatchMessage>)
                     textX = box.x + box.w / 2;
                 }
 
-                // Pre-build font string base to avoid allocation in hot loop
                 return { box, fontBase: `"${box.fontFamily}"`, textX, textAlign };
             });
 
-        // Create reusable canvas (allocated once, reused for every certificate)
         reusableCanvas = new OffscreenCanvas(cachedTemplateWidth, cachedTemplateHeight);
         reusableCtx = reusableCanvas.getContext('2d', {
-            alpha: false,         // No transparency — faster compositing
-            desynchronized: true, // Don't sync with display — purely encoding
+            alpha: false,
+            desynchronized: true,
         })!;
 
         self.postMessage({ type: 'ready' } as WorkerResponse);

@@ -8,7 +8,9 @@ interface CsvPreviewPopupProps {
 }
 
 export function CsvPreviewPopup({ isOpen, onClose }: CsvPreviewPopupProps) {
-    const { csvHeaders, csvData, csvFile } = useAppStore();
+    const csvHeaders = useAppStore(s => s.csvHeaders);
+    const csvData = useAppStore(s => s.csvData);
+    const csvFile = useAppStore(s => s.csvFile);
     const [page, setPage] = useState(0);
     const rowsPerPage = 10;
 

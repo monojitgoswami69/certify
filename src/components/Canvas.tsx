@@ -32,20 +32,18 @@ export function Canvas() {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    const {
-        templateImage,
-        boxes,
-        activeBoxId,
-        displayScale,
-        previewEnabled,
-        csvData,
-        fontPreview,
-        addBox,
-        updateBox,
-        deleteBox,
-        setActiveBox,
-        setDisplayScale,
-    } = useAppStore();
+    const templateImage = useAppStore(s => s.templateImage);
+    const boxes = useAppStore(s => s.boxes);
+    const activeBoxId = useAppStore(s => s.activeBoxId);
+    const displayScale = useAppStore(s => s.displayScale);
+    const previewEnabled = useAppStore(s => s.previewEnabled);
+    const csvData = useAppStore(s => s.csvData);
+    const fontPreview = useAppStore(s => s.fontPreview);
+    const addBox = useAppStore(s => s.addBox);
+    const updateBox = useAppStore(s => s.updateBox);
+    const deleteBox = useAppStore(s => s.deleteBox);
+    const setActiveBox = useAppStore(s => s.setActiveBox);
+    const setDisplayScale = useAppStore(s => s.setDisplayScale);
 
     const [dragMode, setDragMode] = useState<DragMode>('none');
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });

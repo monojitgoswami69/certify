@@ -1,3 +1,18 @@
+/* Self-hosted UI fonts — eliminates render-blocking Google Fonts request.
+   Importing only the weights actually used by the app. */
+@import "@fontsource/jura/400.css";
+@import "@fontsource/jura/500.css";
+@import "@fontsource/jura/700.css";
+@import "@fontsource/averia-libre/400.css";
+@import "@fontsource/averia-libre/700.css";
+@import "@fontsource/nova-mono/400.css";
+@import "@fontsource/nova-square/400.css";
+@import "@fontsource/kode-mono/400.css";
+@import "@fontsource/kode-mono/700.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
+
 @import "tailwindcss";
 
 @theme {

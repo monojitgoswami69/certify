@@ -11,6 +11,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/averia-libre": "^5.2.7",
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/jura": "^5.2.7",
+    "@fontsource/kode-mono": "^5.2.8",
+    "@fontsource/nova-mono": "^5.2.8",
+    "@fontsource/nova-square": "^5.2.8",
     "client-zip": "^2.5.0",
     "clsx": "^2.1.1",
     "jspdf": "^4.0.0",

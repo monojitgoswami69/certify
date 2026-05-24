@@ -17,8 +17,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          // Split heavy vendor libs for better caching
-          'vendor-pdf': ['jspdf'],
+          // PapaParse is the only heavy lib still imported on the main thread.
+          // jsPDF now lives inside the worker bundle — no main-thread chunk needed.
           'vendor-csv': ['papaparse'],
         },
       },

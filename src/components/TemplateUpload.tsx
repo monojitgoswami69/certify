@@ -10,7 +10,7 @@ import { Upload } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 
 export function TemplateUpload() {
-    const { setTemplate } = useAppStore();
+    const setTemplate = useAppStore(s => s.setTemplate);
 
     const handleFile = useCallback((file: File) => {
         if (!file || !file.type.startsWith('image/')) return;

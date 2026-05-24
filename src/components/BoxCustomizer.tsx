@@ -15,15 +15,13 @@ import { FontSelector } from './FontSelector';
 import type { HorizontalAlign, VerticalAlign } from '../types';
 
 export function BoxCustomizer() {
-    const {
-        boxes,
-        activeBoxId,
-        csvHeaders,
-        csvData,
-        updateBox,
-        deleteBox,
-        setFontPreview,
-    } = useAppStore();
+    const boxes = useAppStore(s => s.boxes);
+    const activeBoxId = useAppStore(s => s.activeBoxId);
+    const csvHeaders = useAppStore(s => s.csvHeaders);
+    const csvData = useAppStore(s => s.csvData);
+    const updateBox = useAppStore(s => s.updateBox);
+    const deleteBox = useAppStore(s => s.deleteBox);
+    const setFontPreview = useAppStore(s => s.setFontPreview);
 
     const activeBox = boxes.find(b => b.id === activeBoxId);
 

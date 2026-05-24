@@ -11,16 +11,17 @@ import { useAppStore } from '../store/appStore';
 import { parseCsv } from '../lib/utils';
 
 export function CsvUpload() {
-    const { setCsvData, setError } = useAppStore();
+    const setCsvData = useAppStore(s => s.setCsvData);
+    const setError = useAppStore(s => s.setError);
 
     const handleFile = useCallback((file: File) => {
         if (!file) return;
 
         const reader = new FileReader();
-        reader.onload = (e) => {
+        reader.onload = async (e) => {
             try {
                 const text = e.target?.result as string;
-                const { headers, data } = parseCsv(text);
+                const { headers, data } = await parseCsv(text);
                 setCsvData(file, headers, data);
                 setError(null);
             } catch (err) {

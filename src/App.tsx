@@ -55,25 +55,24 @@ function MobileOverlay() {
 // =============================================================================
 
 export default function App() {
-    const {
-        templateImage,
-        templateFile,
-        boxes,
-        csvData,
-        csvFile,
-        error,
-        previewEnabled,
-        workerCount,
-        generationStatus,
-        setFonts,
-        setPreviewEnabled,
-        setWorkerCount,
-        clearTemplate,
-        clearCsvData,
-        outputFormats,
-        setOutputFormats,
-        reset,
-    } = useAppStore();
+    // Per-slice selectors: unrelated store changes don't re-render this component tree.
+    const templateImage = useAppStore(s => s.templateImage);
+    const templateFile = useAppStore(s => s.templateFile);
+    const boxes = useAppStore(s => s.boxes);
+    const csvData = useAppStore(s => s.csvData);
+    const csvFile = useAppStore(s => s.csvFile);
+    const error = useAppStore(s => s.error);
+    const previewEnabled = useAppStore(s => s.previewEnabled);
+    const workerCount = useAppStore(s => s.workerCount);
+    const generationStatus = useAppStore(s => s.generationStatus);
+    const setFonts = useAppStore(s => s.setFonts);
+    const setPreviewEnabled = useAppStore(s => s.setPreviewEnabled);
+    const setWorkerCount = useAppStore(s => s.setWorkerCount);
+    const clearTemplate = useAppStore(s => s.clearTemplate);
+    const clearCsvData = useAppStore(s => s.clearCsvData);
+    const outputFormats = useAppStore(s => s.outputFormats);
+    const setOutputFormats = useAppStore(s => s.setOutputFormats);
+    const reset = useAppStore(s => s.reset);
 
     const [showCsvPreview, setShowCsvPreview] = useState(false);
     const [currentView, setCurrentView] = useState<'landing' | 'editor'>('landing');
@@ -161,6 +160,19 @@ export default function App() {
             preloadFonts(popularFonts.map(f => f.family));
         });
     }, [setFonts]);
+
+    // Warm the worker pool module while the browser is idle, so the
+    // first click on "Generate" doesn't pay the worker chunk download cost.
+    useEffect(() => {
+        const warmup = () => { void import('./lib/workerPool'); };
+        type IdleApi = { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number };
+        const win = window as unknown as IdleApi;
+        if (typeof win.requestIdleCallback === 'function') {
+            win.requestIdleCallback(warmup, { timeout: 4000 });
+        } else {
+            setTimeout(warmup, 2000);
+        }
+    }, []);
 
     // Determined step status...
     const step1Complete = !!templateImage;
