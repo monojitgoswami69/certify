@@ -474,6 +474,8 @@ export function GenerateButton() {
             if (abortRef.current) {
                 setGenerationStatus('idle');
                 progressScheduler.cancel();
+                setProgress(DEFAULT_PROGRESS);
+                setRetryQueue([]);
             }
         }
     };
@@ -484,6 +486,8 @@ export function GenerateButton() {
 
     const handleGenerate = async () => {
         if (generationStatus === 'running') return;
+
+        abortRef.current = false;
 
         // Dedupe rows by printed-field fingerprint
         const printedFields = validBoxes.map(b => b.field);
@@ -505,6 +509,7 @@ export function GenerateButton() {
     };
 
     const handleRetry = async () => {
+        abortRef.current = false;
         const records = retryQueue.map(r => ({ rowIndex: r.rowIndex, row: r.row }));
         await runGeneration(records, true);
     };
