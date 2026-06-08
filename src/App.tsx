@@ -75,9 +75,25 @@ export default function App() {
     const reset = useAppStore(s => s.reset);
 
     const [showCsvPreview, setShowCsvPreview] = useState(false);
-    const [currentView, setCurrentView] = useState<'landing' | 'editor'>('landing');
+    const [currentView, setCurrentView] = useState<'landing' | 'editor'>(() => {
+        if (typeof window === 'undefined') return 'landing';
+        if (window.history.state?.view === 'editor') return 'editor';
+        return sessionStorage.getItem('certify:view') === 'editor' ? 'editor' : 'landing';
+    });
     const [isTransitioning, setIsTransitioning] = useState(false);
     const [transitionStep, setTransitionStep] = useState<'idle' | 'exiting' | 'entering' | 'exiting-back' | 'entering-back'>('idle');
+
+    // Persist current view so a hard refresh inside the editor stays in the editor.
+    useEffect(() => {
+        if (currentView === 'editor') {
+            sessionStorage.setItem('certify:view', 'editor');
+            if (window.history.state?.view !== 'editor') {
+                window.history.replaceState({ view: 'editor' }, '');
+            }
+        } else {
+            sessionStorage.removeItem('certify:view');
+        }
+    }, [currentView]);
 
     // Mobile detection
     const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 1024 : false);
