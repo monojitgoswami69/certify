@@ -563,6 +563,7 @@ export function GenerateButton() {
                 <button
                     onClick={handleGenerate}
                     disabled={!isReady}
+                    aria-disabled={!isReady}
                     className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${isReady
                         ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white hover:from-primary-700 hover:to-primary-800 shadow-lg shadow-primary-500/25'
                         : 'bg-slate-100 text-slate-400 cursor-not-allowed'

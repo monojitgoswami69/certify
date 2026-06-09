@@ -9,9 +9,9 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
     return (
         <div className="min-h-screen bg-white text-slate-900 font-sans selection:bg-primary-100 selection:text-primary-700">
             {/* Navigation */}
-            <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-slate-100 px-6 py-4 flex items-center justify-between">
+            <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-slate-100 px-6 py-4 flex items-center justify-between" aria-label="Primary navigation">
                 <div className="flex items-center gap-2">
-                    <img src="/logo/certify-logo.webp" alt="Certify Logo" className="w-8 h-8 object-contain" />
+                    <img src="/logo/certify-logo.webp" alt="Certify bulk certificate generator logo" width="32" height="32" className="w-8 h-8 object-contain" />
                     <span
                         className="font-bold tracking-tight text-slate-800"
                         style={{ fontFamily: "'Nova Mono', monospace", fontSize: '22px' }}
@@ -44,6 +44,7 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4 opacity-0 animate-slide-up delay-200">
                         <button
                             onClick={onStart}
+                            aria-label="Open the Certify bulk certificate generator"
                             className="w-full sm:w-auto px-10 py-4 bg-gradient-to-r from-primary-600 via-indigo-600 to-violet-600 text-white rounded-2xl font-bold text-lg md:text-xl hover:shadow-2xl hover:shadow-primary-500/30 hover:scale-[1.02] transition-all active:scale-95 flex items-center justify-center gap-3 group cursor-pointer uppercase tracking-wider"
                             style={{ fontFamily: "'Nova Mono', monospace" }}
                         >
@@ -173,6 +174,7 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
                         </p>
                         <button
                             onClick={onStart}
+                            aria-label="Start generating certificates with Certify"
                             className="bg-gradient-to-r from-primary-600 via-indigo-600 to-violet-600 text-white px-10 py-4 rounded-2xl font-bold text-lg md:text-xl hover:shadow-2xl hover:shadow-primary-500/30 hover:scale-[1.02] transition-all active:scale-95 flex items-center justify-center gap-3 mx-auto cursor-pointer uppercase tracking-wider"
                             style={{ fontFamily: "'Nova Mono', monospace" }}
                         >
@@ -196,6 +198,7 @@ export const LandingPage = React.memo(({ onStart }: LandingPageProps) => {
                             href="https://github.com/monojitgoswami69/certify"
                             target="_blank"
                             rel="noopener noreferrer"
+                            aria-label="View Certify source code on GitHub"
                             className="flex items-center gap-2 hover:text-slate-900 transition-all group pointer-events-auto cursor-pointer"
                         >
                             <Github className="w-5 h-5 transition-transform group-hover:scale-110" />

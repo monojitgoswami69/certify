@@ -32,7 +32,7 @@ function MobileOverlay() {
     return (
         <div className="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-center p-12 text-center overflow-hidden">
             <div className="mb-8">
-                <img src="/logo/certify-logo.webp" alt="Certify" className="w-24 h-24 object-contain mx-auto" />
+                <img src="/logo/certify-logo.webp" alt="Certify bulk certificate generator logo" width="96" height="96" className="w-24 h-24 object-contain mx-auto" />
             </div>
 
             <h2 className="text-4xl font-bold text-slate-900 mb-4 tracking-tight font-serif">
@@ -177,19 +177,6 @@ export default function App() {
         });
     }, [setFonts]);
 
-    // Warm the worker pool module while the browser is idle, so the
-    // first click on "Generate" doesn't pay the worker chunk download cost.
-    useEffect(() => {
-        const warmup = () => { void import('./lib/workerPool'); };
-        type IdleApi = { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number };
-        const win = window as unknown as IdleApi;
-        if (typeof win.requestIdleCallback === 'function') {
-            win.requestIdleCallback(warmup, { timeout: 4000 });
-        } else {
-            setTimeout(warmup, 2000);
-        }
-    }, []);
-
     // Determined step status...
     const step1Complete = !!templateImage;
     const step2Complete = csvData.length > 0;
@@ -233,13 +220,14 @@ export default function App() {
             <div className="flex items-center gap-3">
                 <button
                     onClick={handleExit}
+                    aria-label="Exit to the Certify landing page"
                     className="p-1.5 -ml-1 hover:bg-slate-100 rounded-lg transition-colors group cursor-pointer"
                     title="Exit to Landing Page"
                 >
                     <ArrowLeft className="w-5 h-5 text-slate-400 group-hover:text-slate-600" />
                 </button>
                 <div className="flex items-center gap-2">
-                    <img src="/logo/certify-logo.webp" alt="Certify Logo" className="w-7 h-7 object-contain" />
+                    <img src="/logo/certify-logo.webp" alt="Certify bulk certificate generator logo" width="28" height="28" className="w-7 h-7 object-contain" />
                     <div className="flex flex-col">
                         <span
                             className="font-bold tracking-tight text-slate-800 leading-none"
@@ -256,6 +244,7 @@ export default function App() {
 
             <button
                 onClick={reset}
+                aria-label="Reset all certificate generation progress"
                 title="Reset all progress"
                 className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all active:scale-95 cursor-pointer"
             >
@@ -278,6 +267,7 @@ export default function App() {
                         </div>
                         <button
                             onClick={clearTemplate}
+                            aria-label="Remove uploaded certificate template"
                             className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors flex-shrink-0 cursor-pointer"
                         >
                             <X className="w-4 h-4" />
@@ -291,10 +281,19 @@ export default function App() {
             {/* Step 2: Import Data */}
             <StepCard number={2} title="Import Data" status={step2Status}>
                 {csvData.length > 0 ? (
-                    <div
-                        className="flex items-center justify-between px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors group"
-                        onClick={() => setShowCsvPreview(true)}
-                    >
+                        <div
+                            className="flex items-center justify-between px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors group"
+                            role="button"
+                            tabIndex={0}
+                            aria-label="Preview imported CSV data"
+                            onClick={() => setShowCsvPreview(true)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    setShowCsvPreview(true);
+                                }
+                            }}
+                        >
                         <div className="flex items-center gap-2 min-w-0">
                             <FileSpreadsheet className="w-4 h-4 text-emerald-500 flex-shrink-0" />
                             <span className="text-sm text-slate-700 truncate">
@@ -306,6 +305,7 @@ export default function App() {
                                 e.stopPropagation();
                                 clearCsvData();
                             }}
+                            aria-label="Remove imported CSV data"
                             className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors flex-shrink-0 cursor-pointer"
                         >
                             <X className="w-4 h-4" />
@@ -328,6 +328,8 @@ export default function App() {
                         <span className="text-sm text-slate-600 font-medium">Preview with data</span>
                         <button
                             onClick={() => setPreviewEnabled(!previewEnabled)}
+                            aria-label={previewEnabled ? 'Disable certificate preview with CSV data' : 'Enable certificate preview with CSV data'}
+                            aria-pressed={previewEnabled}
                             className={`p-1.5 rounded-md transition-colors cursor-pointer ${previewEnabled
                                 ? 'bg-primary-100 text-primary-600'
                                 : 'bg-slate-200 text-slate-500'

@@ -17,6 +17,12 @@ export function CsvUpload() {
     const handleFile = useCallback((file: File) => {
         if (!file) return;
 
+        const isCsv = file.type === 'text/csv' || file.name.toLowerCase().endsWith('.csv');
+        if (!isCsv) {
+            setError('Please upload a CSV file.');
+            return;
+        }
+
         const reader = new FileReader();
         reader.onload = async (e) => {
             try {
@@ -27,6 +33,9 @@ export function CsvUpload() {
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Failed to parse CSV');
             }
+        };
+        reader.onerror = () => {
+            setError('The selected CSV file could not be read.');
         };
         reader.readAsText(file);
     }, [setCsvData, setError]);
@@ -47,11 +56,12 @@ export function CsvUpload() {
             className="flex items-center gap-3 p-4 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-primary-400 hover:bg-primary-50/30 transition-colors"
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
+            aria-label="Upload CSV recipient data"
         >
             <input
                 type="file"
                 accept=".csv"
-                className="hidden"
+                className="sr-only"
                 onChange={handleChange}
             />
             <FileText className="w-6 h-6 text-slate-400" />

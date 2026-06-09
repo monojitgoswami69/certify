@@ -20,9 +20,14 @@ import type { TextBox } from '../types';
 const HANDLE_SIZE = 8;
 const LABEL_HEIGHT = 20;
 const LABEL_PADDING = 6;
+const MIN_BOX_SIZE = 20;
 
 type DragMode = 'none' | 'draw' | 'move' | 'resize';
 type HandleKey = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
+
+function clamp(value: number, min: number, max: number) {
+    return Math.min(Math.max(value, min), max);
+}
 
 // =============================================================================
 // Component
@@ -320,7 +325,9 @@ export function Canvas() {
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         if (!templateImage) return;
 
-        const { x, y } = screenToImage(e.clientX, e.clientY);
+        const point = screenToImage(e.clientX, e.clientY);
+        const x = clamp(point.x, 0, templateImage.width);
+        const y = clamp(point.y, 0, templateImage.height);
 
         // Check resize handles for active box
         const activeBox = boxes.find(b => b.id === activeBoxId);
@@ -367,7 +374,11 @@ export function Canvas() {
     }, [templateImage, boxes, activeBoxId, screenToImage, setActiveBox, csvData.length]);
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
-        const { x, y } = screenToImage(e.clientX, e.clientY);
+        const point = screenToImage(e.clientX, e.clientY);
+        const maxX = templateImage?.width ?? point.x;
+        const maxY = templateImage?.height ?? point.y;
+        const x = clamp(point.x, 0, maxX);
+        const y = clamp(point.y, 0, maxY);
 
         // 1. Logical Updates (Dragging)
         if (dragMode !== 'none') {
@@ -383,8 +394,8 @@ export function Canvas() {
                 const dx = x - dragStart.x;
                 const dy = y - dragStart.y;
                 updateBox(originalBox.id, {
-                    x: originalBox.x + dx,
-                    y: originalBox.y + dy,
+                    x: clamp(originalBox.x + dx, 0, Math.max(0, maxX - originalBox.w)),
+                    y: clamp(originalBox.y + dy, 0, Math.max(0, maxY - originalBox.h)),
                 });
             } else if (dragMode === 'resize' && originalBox && activeHandle) {
                 const dx = x - dragStart.x;
@@ -418,9 +429,13 @@ export function Canvas() {
                         break;
                 }
 
-                // Ensure minimum size
-                if (newBox.w >= 20 && newBox.h >= 20) {
-                    updateBox(originalBox.id, { x: newBox.x, y: newBox.y, w: newBox.w, h: newBox.h });
+                if (newBox.w >= MIN_BOX_SIZE && newBox.h >= MIN_BOX_SIZE) {
+                    const clampedX = clamp(newBox.x, 0, Math.max(0, maxX - MIN_BOX_SIZE));
+                    const clampedY = clamp(newBox.y, 0, Math.max(0, maxY - MIN_BOX_SIZE));
+                    const clampedW = clamp(newBox.w, MIN_BOX_SIZE, maxX - clampedX);
+                    const clampedH = clamp(newBox.h, MIN_BOX_SIZE, maxY - clampedY);
+
+                    updateBox(originalBox.id, { x: clampedX, y: clampedY, w: clampedW, h: clampedH });
                 }
             }
         }
@@ -488,10 +503,10 @@ export function Canvas() {
             // Default
             canvas.style.cursor = csvData.length > 0 ? 'crosshair' : 'not-allowed';
         }
-    }, [dragMode, dragStart, originalBox, activeHandle, screenToImage, updateBox, boxes, activeBoxId, csvData.length, displayScale]);
+    }, [dragMode, dragStart, originalBox, activeHandle, screenToImage, updateBox, boxes, activeBoxId, csvData.length, displayScale, templateImage]);
 
     const handleMouseUp = useCallback(() => {
-        if (dragMode === 'draw' && tempBox && tempBox.w > 20 && tempBox.h > 20) {
+        if (dragMode === 'draw' && tempBox && tempBox.w > MIN_BOX_SIZE && tempBox.h > MIN_BOX_SIZE) {
             addBox(tempBox);
         }
 
@@ -508,7 +523,14 @@ export function Canvas() {
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (activeBoxId && (e.key === 'Delete' || e.key === 'Backspace')) {
-                if (document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+                const activeElement = document.activeElement;
+                const isEditingText = activeElement instanceof HTMLInputElement ||
+                    activeElement instanceof HTMLTextAreaElement ||
+                    activeElement instanceof HTMLSelectElement ||
+                    activeElement?.getAttribute('contenteditable') === 'true';
+
+                if (!isEditingText) {
+                    e.preventDefault();
                     deleteBox(activeBoxId);
                 }
             }
@@ -547,6 +569,8 @@ export function Canvas() {
         >
             <canvas
                 ref={canvasRef}
+                role="img"
+                aria-label="Certificate template editor canvas. Use the mouse to draw, move, and resize certificate text areas."
                 className="rounded-lg cursor-crosshair border border-slate-200"
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}

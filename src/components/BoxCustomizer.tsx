@@ -105,6 +105,7 @@ export function BoxCustomizer() {
                 </div>
                 <button
                     onClick={() => deleteBox(activeBox.id)}
+                    aria-label="Delete selected text box"
                     className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                 >
                     <Trash2 className="w-4 h-4" />
@@ -126,6 +127,7 @@ export function BoxCustomizer() {
                 </label>
                 <select
                     value={activeBox.field}
+                    aria-label="CSV field for selected text box"
                     onChange={(e) => updateBox(activeBox.id, { field: e.target.value })}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
                 >
@@ -159,6 +161,7 @@ export function BoxCustomizer() {
                         type="number"
                         min={10}
                         max={200}
+                        aria-label="Font size in pixels"
                         value={fontSizeInput}
                         onChange={(e) => handleFontSizeChange(e.target.value)}
                         onBlur={handleFontSizeBlur}
@@ -169,6 +172,7 @@ export function BoxCustomizer() {
                     <label className="block text-xs font-medium text-slate-500 mb-1.5">Color</label>
                     <input
                         type="color"
+                        aria-label="Font color"
                         value={activeBox.fontColor}
                         onChange={(e) => updateBox(activeBox.id, { fontColor: e.target.value })}
                         className="w-full h-10 border border-slate-200 rounded-lg cursor-pointer"
@@ -191,6 +195,8 @@ export function BoxCustomizer() {
                                 <button
                                     key={value}
                                     onClick={() => updateBox(activeBox.id, { hAlign: value })}
+                                    aria-label={`Set horizontal alignment to ${label.toLowerCase()}`}
+                                    aria-pressed={activeBox.hAlign === value}
                                     className={`flex-1 p-1.5 rounded-md transition-all ${activeBox.hAlign === value
                                         ? 'bg-white text-primary-600 shadow-sm'
                                         : 'text-slate-500 hover:text-slate-700'
@@ -211,6 +217,8 @@ export function BoxCustomizer() {
                                 <button
                                     key={value}
                                     onClick={() => updateBox(activeBox.id, { vAlign: value })}
+                                    aria-label={`Set vertical alignment to ${label.toLowerCase()}`}
+                                    aria-pressed={activeBox.vAlign === value}
                                     className={`flex-1 px-2 py-1.5 rounded-md transition-all text-xs font-medium ${activeBox.vAlign === value
                                         ? 'bg-white text-primary-600 shadow-sm'
                                         : 'text-slate-500 hover:text-slate-700'

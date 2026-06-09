@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, Table, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 
@@ -12,7 +12,28 @@ export function CsvPreviewPopup({ isOpen, onClose }: CsvPreviewPopupProps) {
     const csvData = useAppStore(s => s.csvData);
     const csvFile = useAppStore(s => s.csvFile);
     const [page, setPage] = useState(0);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
     const rowsPerPage = 10;
+
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        closeButtonRef.current?.focus();
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                onClose();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.body.style.overflow = previousOverflow;
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [isOpen, onClose]);
 
     if (!isOpen) return null;
 
@@ -21,7 +42,7 @@ export function CsvPreviewPopup({ isOpen, onClose }: CsvPreviewPopupProps) {
     const visibleRows = csvData.slice(startRow, startRow + rowsPerPage);
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="csv-preview-title">
             {/* Backdrop */}
             <div
                 className="absolute inset-0 bg-black/50 backdrop-blur-sm"
@@ -37,13 +58,14 @@ export function CsvPreviewPopup({ isOpen, onClose }: CsvPreviewPopupProps) {
                             <Table className="w-5 h-5 text-primary-600" />
                         </div>
                         <div>
-                            <h2 className="font-semibold text-slate-800">CSV Data Preview</h2>
+                            <h2 id="csv-preview-title" className="font-semibold text-slate-800">CSV Data Preview</h2>
                             <p className="text-sm text-slate-500">
                                 {csvFile?.name} • {csvData.length} records • {csvHeaders.length} columns
                             </p>
                         </div>
                     </div>
                     <button
+                        ref={closeButtonRef}
                         onClick={onClose}
                         className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
                         aria-label="Close CSV preview"
@@ -103,6 +125,7 @@ export function CsvPreviewPopup({ isOpen, onClose }: CsvPreviewPopupProps) {
                             <button
                                 onClick={() => setPage(p => Math.max(0, p - 1))}
                                 disabled={page === 0}
+                                aria-label="Show previous CSV preview page"
                                 className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             >
                                 <ChevronLeft className="w-4 h-4" />
@@ -113,6 +136,7 @@ export function CsvPreviewPopup({ isOpen, onClose }: CsvPreviewPopupProps) {
                             <button
                                 onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
                                 disabled={page >= totalPages - 1}
+                                aria-label="Show next CSV preview page"
                                 className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             >
                                 <ChevronRight className="w-4 h-4" />

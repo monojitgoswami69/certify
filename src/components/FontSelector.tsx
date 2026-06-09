@@ -284,6 +284,8 @@ export function FontSelector({ value, onChange, onPreview, className = '' }: Fon
             <button
                 type="button"
                 onClick={() => setIsOpen(!isOpen)}
+                aria-haspopup="listbox"
+                aria-expanded={isOpen}
                 className="w-full px-3 py-2 text-sm text-left bg-white border border-slate-200 rounded-lg 
                     focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400
                     flex items-center justify-between gap-2 hover:border-slate-300 transition-colors"
@@ -311,6 +313,7 @@ export function FontSelector({ value, onChange, onPreview, className = '' }: Fon
                             <input
                                 ref={searchInputRef}
                                 type="text"
+                                aria-label="Search fonts"
                                 value={search}
                                 onChange={handleSearchChange}
                                 placeholder="Search fonts..."
@@ -321,6 +324,7 @@ export function FontSelector({ value, onChange, onPreview, className = '' }: Fon
                                 <button
                                     type="button"
                                     onClick={() => setSearch('')}
+                                    aria-label="Clear font search"
                                     className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600"
                                 >
                                     <X className="w-3.5 h-3.5" />

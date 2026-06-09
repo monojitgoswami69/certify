@@ -1,8 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-US">
 
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="apple-touch-icon" sizes="180x180" href="/favicons/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicons/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicons/favicon-16x16.png">
@@ -10,30 +11,124 @@
   <link rel="manifest" href="/favicons/site.webmanifest">
   <meta name="msapplication-TileColor" content="#2b5797">
   <meta name="theme-color" content="#ffffff">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>certify | certificate generator</title>
-  <meta name="description" content="client side mass certificate generation using web workers" />
+  <meta name="color-scheme" content="light">
+
+  <title>Certify - Free Bulk Certificate Generator from CSV</title>
+  <meta name="description" content="Create personalized certificates in bulk from CSV data with Certify, a free browser-based certificate generator with drag-and-drop design, Google Fonts, ZIP export, JPG, PNG, and PDF downloads." />
+  <meta name="application-name" content="Certify">
+  <meta name="author" content="Monojit Goswami">
+  <meta name="creator" content="Monojit Goswami">
+  <meta name="publisher" content="Certify">
+  <meta name="category" content="Productivity">
+  <meta name="keywords" content="certificate generator, bulk certificate generator, mass certificate generator, CSV certificate generator, free certificate maker, personalized certificates, certificate automation, client-side certificate generator, PDF certificates, JPG certificates, PNG certificates">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <meta name="googlebot" content="index, follow, max-image-preview:large">
+  <link rel="canonical" href="https://certify.mgbuilds.in/">
+  <link rel="sitemap" type="application/xml" href="/sitemap.xml">
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://certify.mgbuilds.in/">
   <meta property="og:site_name" content="Certify">
-  <meta property="og:title" content="certify | certificate generator">
-  <meta property="og:description" content="client side mass certificate generation using web workers">
+  <meta property="og:title" content="Certify - Free Bulk Certificate Generator from CSV">
+  <meta property="og:description" content="Design and generate personalized certificates in bulk from CSV data directly in your browser. Export ZIP bundles as JPG, PNG, or PDF without uploading recipient data.">
   <meta property="og:image" content="https://certify.mgbuilds.in/og-image/certify-og-image.png">
+  <meta property="og:image:secure_url" content="https://certify.mgbuilds.in/og-image/certify-og-image.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="628">
+  <meta property="og:image:alt" content="Certify bulk certificate generator interface preview">
   <meta property="og:locale" content="en_US">
 
   <!-- Twitter -->
-  <meta property="twitter:card" content="summary_large_image">
-  <meta property="twitter:url" content="https://certify.mgbuilds.in/">
-  <meta property="twitter:title" content="certify | certificate generator">
-  <meta property="twitter:description" content="client side mass certificate generation using web workers">
-  <meta property="twitter:image" content="https://certify.mgbuilds.in/og-image/certify-og-image.png">
-  <meta property="twitter:image:alt" content="certify | certificate generator preview">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="https://certify.mgbuilds.in/">
+  <meta name="twitter:title" content="Certify - Free Bulk Certificate Generator from CSV">
+  <meta name="twitter:description" content="Create personalized certificates in bulk from CSV data in your browser. Export ZIP bundles as JPG, PNG, or PDF.">
+  <meta name="twitter:image" content="https://certify.mgbuilds.in/og-image/certify-og-image.png">
+  <meta name="twitter:image:alt" content="Certify bulk certificate generator interface preview">
 
-  <!-- Meta Tags -->
-  <meta name="keywords" content="certificate generator, bulk certificates, client-side, web workers, automation">
-  <meta name="author" content="Certify Team">
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebApplication",
+          "@id": "https://certify.mgbuilds.in/#webapp",
+          "name": "Certify",
+          "alternateName": "Certify Certificate Generator",
+          "url": "https://certify.mgbuilds.in/",
+          "description": "Certify is a free browser-based bulk certificate generator for creating personalized certificates from CSV data and exporting them as JPG, PNG, or PDF files.",
+          "applicationCategory": "BusinessApplication",
+          "operatingSystem": "Web",
+          "browserRequirements": "Requires a modern desktop browser with JavaScript enabled.",
+          "isAccessibleForFree": true,
+          "image": "https://certify.mgbuilds.in/og-image/certify-og-image.png",
+          "screenshot": "https://certify.mgbuilds.in/og-image/certify-og-image.png",
+          "softwareVersion": "1.0.0",
+          "creator": {
+            "@type": "Person",
+            "name": "Monojit Goswami",
+            "url": "https://github.com/monojitgoswami69"
+          },
+          "featureList": [
+            "Bulk certificate generation from CSV data",
+            "Drag-and-drop certificate text placement",
+            "Client-side processing for private recipient data",
+            "Google Fonts support",
+            "ZIP export",
+            "JPG, PNG, and PDF certificate downloads"
+          ],
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+          }
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://certify.mgbuilds.in/#website",
+          "name": "Certify",
+          "url": "https://certify.mgbuilds.in/",
+          "description": "Free browser-based bulk certificate generator for CSV-powered personalized certificate exports.",
+          "publisher": {
+            "@type": "Person",
+            "name": "Monojit Goswami"
+          }
+        },
+        {
+          "@type": "FAQPage",
+          "@id": "https://certify.mgbuilds.in/#faq",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "Can Certify generate certificates in bulk from a CSV file?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes. Certify imports recipient data from CSV files, maps columns to certificate text fields, and generates certificates in bulk."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Does Certify upload certificate data to a server?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "No. Certify processes template images and recipient CSV data in the browser so sensitive certificate data stays on the user's device."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Which certificate export formats does Certify support?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Certify supports JPG, PNG, and PDF certificate exports and can package generated files into a ZIP download."
+              }
+            }
+          ]
+        }
+      ]
+    }
+  </script>
 
   <!-- UI fonts are self-hosted via @fontsource (bundled by Vite from src/index.css).
        The Google Fonts library used in the editor's font picker is still loaded

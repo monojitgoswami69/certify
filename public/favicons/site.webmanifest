@@ -1,6 +1,9 @@
 {
-    "name": "Certify - Premium Certificate Generator",
+    "name": "Certify - Bulk Certificate Generator",
     "short_name": "Certify",
+    "description": "Create personalized certificates in bulk from CSV data directly in your browser.",
+    "start_url": "/",
+    "scope": "/",
     "icons": [
         {
             "src": "/favicons/android-chrome-192x192.png",
@@ -15,5 +18,6 @@
     ],
     "theme_color": "#ffffff",
     "background_color": "#ffffff",
-    "display": "standalone"
+    "display": "standalone",
+    "orientation": "landscape"
 }
